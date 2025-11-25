@@ -448,7 +448,7 @@
             if (file.source === 'local') {
                 Swal.fire({
                     title: 'อัปโหลดเพื่อแชร์?',
-                    text: "เนื่องจากคุณไม่ได้ Login ไฟล์จะถูกอัปโหลดไปยัง Cloud สาธารณะ (File.io) เพื่อสร้างลิงก์แชร์ ไฟล์จะถูกลบอัตโนมัติหลัง 14 วันหรือหลังการดาวน์โหลด",
+                    text: "เนื่องจากคุณไม่ได้ Login ไฟล์จะถูกอัปโหลดไปยัง Cloud สาธารณะ (File.io) แบบชั่วคราว (1 วัน) เพื่อสร้างลิงก์",
                     icon: 'info',
                     showCancelButton: true,
                     confirmButtonText: 'อัปโหลดและแชร์',
@@ -457,18 +457,35 @@
                 }).then(async (result) => {
                     if (result.isConfirmed) {
                         setSharingId(file.id);
-                        Swal.showLoading();
+                        Swal.fire({
+                            title: 'กำลังอัปโหลด...',
+                            html: 'กำลังส่งข้อมูลไปยัง Server (File.io)...<br><span class="text-xs text-red-400">*หากล้มเหลว อาจเกิดจากข้อจำกัดเครือข่าย/CORS</span>',
+                            allowOutsideClick: false,
+                            didOpen: () => {
+                                Swal.showLoading();
+                            }
+                        });
+
                         try {
                             // Convert blob url back to blob/file
                             const blob = await fetch(file.blobUrl).then(r => r.blob());
                             const formData = new FormData();
                             formData.append('file', blob, file.name);
                             
-                            // Upload to File.io
-                            const response = await fetch('https://file.io/?expires=1w', {
+                            // Upload to File.io with expires param and proper accept header
+                            // Note: We cannot force Access-Control-Allow-Origin here, it's server-side.
+                            const response = await fetch('https://file.io/?expires=1d', {
                                 method: 'POST',
+                                headers: {
+                                    'Accept': 'application/json'
+                                },
                                 body: formData
                             });
+
+                            if (!response.ok) {
+                                throw new Error(`Server Error: ${response.status} (API อาจบล็อกคำขอจาก Origin นี้)`);
+                            }
+
                             const data = await response.json();
                             
                             if (data.success) {
@@ -476,19 +493,25 @@
                                 Swal.fire({
                                     icon: 'success',
                                     title: 'สร้างลิงก์แชร์สำเร็จ!',
-                                    html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ชั่วคราว:</p>
-                                           <input type="text" value="${shareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm" readonly>`,
+                                    html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ 1 วัน:</p>
+                                           <input type="text" value="${shareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm text-center" readonly onclick="this.select()">`,
                                     confirmButtonText: 'คัดลอกและปิด',
                                     preConfirm: () => {
                                         navigator.clipboard.writeText(shareLink);
                                     }
                                 });
                             } else {
-                                throw new Error('Upload failed');
+                                throw new Error(data.message || 'Upload failed');
                             }
                         } catch (err) {
-                            console.error(err);
-                            Swal.fire('ผิดพลาด', 'ไม่สามารถอัปโหลดไฟล์ได้', 'error');
+                            console.error("Guest upload error:", err);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'อัปโหลดไม่สำเร็จ',
+                                html: `<p class="text-sm text-gray-600 mb-2">${err.message}</p>
+                                       <p class="text-xs text-red-500">คำแนะนำ: การอัปโหลดแบบ Guest อาจไม่เสถียรเนื่องจากข้อจำกัดความปลอดภัย (CORS) ของเว็บฝากไฟล์ฟรี <br><b>กรุณา Login ด้วย Google เพื่อความเสถียรสูงสุด</b></p>`,
+                                confirmButtonText: 'ตกลง'
+                            });
                         } finally {
                             setSharingId(null);
                         }
