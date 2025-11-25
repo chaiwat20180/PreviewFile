@@ -183,7 +183,7 @@
             setIsDarkMode(!isDarkMode);
         };
 
-        // --- DRIVE HELPER FUNCTIONS (Moved up for access) ---
+        // --- DRIVE HELPER FUNCTIONS ---
         const getOrCreateFolder = async () => {
             try {
                 const q = `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`;
@@ -233,8 +233,6 @@
                 }));
 
                 setFiles(driveFiles);
-                // Cache for redundancy, but main source is now Drive
-                // saveHistory(uid, driveFiles); 
             } catch (err) {
                 console.error("Sync error:", err);
             }
@@ -271,17 +269,14 @@
                         localStorage.removeItem('gdrive_access_token');
                     }
                 } else if (storedGuest === 'true') {
-                    // Restore Guest Mode
                     setIsGuest(true);
                     setUser(null);
                     setUserId('guest');
                     
-                    // Guest viewing shared file
                     if (sharedId) {
                         loadSharedFile(sharedId, true);
                     }
                 } else {
-                    // If not logged in and sharedId exists, Enter Shared View Mode
                     if (sharedId) {
                         loadSharedFile(sharedId, false);
                     }
@@ -296,7 +291,6 @@
                 callback: async (tokenResponse) => {
                     if (tokenResponse && tokenResponse.access_token) {
                         localStorage.setItem('gdrive_access_token', tokenResponse.access_token);
-                        // Refresh for redirect (using REDIRECT_URL logic)
                         window.location.href = REDIRECT_URL;
                     }
                 },
@@ -305,7 +299,7 @@
             setGisInited(true);
         }, []);
 
-        // --- FETCH SHARED FILE (FROM URL) ---
+        // --- FETCH SHARED FILE ---
         const loadSharedFile = async (id, isAuthenticated) => {
             setPreviewLoading(true);
             if (!isAuthenticated) {
@@ -321,8 +315,6 @@
                 });
                 const file = response.result;
                 
-                // If not authenticated, show this single file
-                // If authenticated, syncFilesFromDrive handles the list, we just preview this one
                 if (!isAuthenticated) {
                     setFiles([file]);
                 } 
@@ -346,7 +338,7 @@
             }
         };
 
-        // --- USER PROFILE & HISTORY ---
+        // --- USER PROFILE ---
         const fetchUserProfile = async () => {
             try {
                 const response = await gapi.client.drive.about.get({
@@ -356,18 +348,11 @@
                 const uniqueId = currentUser.permissionId;
                 setUserId(uniqueId);
                 
-                // Sync from cloud instead of local storage
                 syncFilesFromDrive(uniqueId);
             } catch (err) {
                 console.error("Error fetching user profile:", err);
                 if (err.status === 401) handleSignoutClick();
             }
-        };
-
-        const saveHistory = (uid, newFiles) => {
-            if (!uid) return;
-            const historyKey = `gdrive_history_${uid}`;
-            localStorage.setItem(historyKey, JSON.stringify(newFiles));
         };
 
         // --- ACTIONS ---
@@ -440,7 +425,6 @@
 
                         await Promise.all(deletePromises);
 
-                        // Re-sync to be sure
                         if (userId) syncFilesFromDrive(userId);
                         else setFiles([]);
 
@@ -459,13 +443,62 @@
 
         const handleShareFile = async (e, file) => {
             e.stopPropagation();
+            
+            // Handle GUEST MODE Sharing (Public Cloud Upload)
             if (file.source === 'local') {
-                Swal.fire('แจ้งเตือน', 'ไฟล์ใน Guest Mode ไม่สามารถแชร์ได้ กรุณาอัปโหลดเข้า Drive', 'info');
+                Swal.fire({
+                    title: 'อัปโหลดเพื่อแชร์?',
+                    text: "เนื่องจากคุณไม่ได้ Login ไฟล์จะถูกอัปโหลดไปยัง Cloud สาธารณะ (File.io) เพื่อสร้างลิงก์แชร์ ไฟล์จะถูกลบอัตโนมัติหลัง 14 วันหรือหลังการดาวน์โหลด",
+                    icon: 'info',
+                    showCancelButton: true,
+                    confirmButtonText: 'อัปโหลดและแชร์',
+                    cancelButtonText: 'ยกเลิก',
+                    confirmButtonColor: '#10b981'
+                }).then(async (result) => {
+                    if (result.isConfirmed) {
+                        setSharingId(file.id);
+                        Swal.showLoading();
+                        try {
+                            // Convert blob url back to blob/file
+                            const blob = await fetch(file.blobUrl).then(r => r.blob());
+                            const formData = new FormData();
+                            formData.append('file', blob, file.name);
+                            
+                            // Upload to File.io
+                            const response = await fetch('https://file.io/?expires=1w', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            const data = await response.json();
+                            
+                            if (data.success) {
+                                const shareLink = data.link;
+                                Swal.fire({
+                                    icon: 'success',
+                                    title: 'สร้างลิงก์แชร์สำเร็จ!',
+                                    html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ชั่วคราว:</p>
+                                           <input type="text" value="${shareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm" readonly>`,
+                                    confirmButtonText: 'คัดลอกและปิด',
+                                    preConfirm: () => {
+                                        navigator.clipboard.writeText(shareLink);
+                                    }
+                                });
+                            } else {
+                                throw new Error('Upload failed');
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            Swal.fire('ผิดพลาด', 'ไม่สามารถอัปโหลดไฟล์ได้', 'error');
+                        } finally {
+                            setSharingId(null);
+                        }
+                    }
+                });
                 return;
             }
 
+            // Handle DRIVE MODE Sharing (Google Drive)
             setSharingId(file.id);
-            
             Swal.fire({
                 title: 'กำลังสร้างลิงก์แชร์...',
                 html: 'กำลังเปิดสิทธิ์การเข้าถึงและคัดลอกลิงก์',
@@ -550,9 +583,9 @@
 
                         const updatedFiles = files.filter(f => f.id !== fileId);
                         setFiles(updatedFiles);
-                        if (userId) {
-                            saveHistory(userId, updatedFiles);
-                        }
+                        
+                        // Re-sync to keep consistent
+                        // if (userId) syncFilesFromDrive(userId);
 
                         if (previewFile && (previewFile.url.includes(fileId) || (files.find(f => f.id === fileId && previewFile.name === f.name)))) { 
                             setPreviewFile(null);
@@ -649,7 +682,6 @@
                 if (newFiles.length > 0) {
                     setFiles(prev => {
                         const updated = [...newFiles, ...prev];
-                        saveHistory(userId, updated);
                         return updated;
                     });
                     const firstFile = newFiles[0];
@@ -1036,17 +1068,15 @@
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-1">
-                                                        {/* Share Button (Drive Only) */}
-                                                        {!isGuest && file.source !== 'local' && (
-                                                            <button
-                                                                onClick={(e) => handleShareFile(e, file)}
-                                                                disabled={sharingId === file.id}
-                                                                className="w-8 h-8 rounded-full bg-transparent hover:bg-primary/10 text-muted hover:text-primary flex items-center justify-center transition-colors"
-                                                                title="แชร์ไฟล์ (Public)"
-                                                            >
-                                                                {sharingId === file.id ? <i className="fas fa-circle-notch fa-spin text-xs"></i> : <i className="fas fa-share-alt text-xs"></i>}
-                                                            </button>
-                                                        )}
+                                                        {/* Share Button (Both Drive and Guest) */}
+                                                        <button
+                                                            onClick={(e) => handleShareFile(e, file)}
+                                                            disabled={sharingId === file.id}
+                                                            className={`w-8 h-8 rounded-full bg-transparent text-muted flex items-center justify-center transition-colors ${file.source === 'local' ? 'hover:bg-secondary/10 hover:text-secondary' : 'hover:bg-primary/10 hover:text-primary'}`}
+                                                            title={file.source === 'local' ? "อัปโหลดเพื่อแชร์ (Public Link)" : "แชร์ไฟล์ (Public)"}
+                                                        >
+                                                            {sharingId === file.id ? <i className="fas fa-circle-notch fa-spin text-xs"></i> : <i className={`fas ${file.source === 'local' ? 'fa-cloud-upload-alt' : 'fa-share-alt'} text-xs`}></i>}
+                                                        </button>
 
                                                         {deletingId === file.id ? (
                                                             <div className="loader w-4 h-4 border-2"></div>
