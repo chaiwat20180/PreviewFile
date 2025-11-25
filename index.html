@@ -219,8 +219,8 @@
                 callback: async (tokenResponse) => {
                     if (tokenResponse && tokenResponse.access_token) {
                         localStorage.setItem('gdrive_access_token', tokenResponse.access_token);
-                        // Refresh current page instead of redirecting to prevent cross-origin storage loss
-                        window.location.reload();
+                        // Redirect to specific URL after login
+                        window.location.href = REDIRECT_URL;
                     }
                 },
             });
@@ -313,7 +313,7 @@
 
         const handleGuestClick = () => {
             localStorage.setItem('gdrive_guest_mode', 'true');
-            window.location.reload();
+            window.location.href = REDIRECT_URL;
         };
 
         const handleSignoutClick = () => {
@@ -328,7 +328,7 @@
             }
             localStorage.removeItem('gdrive_access_token'); 
             
-            window.location.reload();
+            window.location.href = REDIRECT_URL;
         };
 
         const handleClearHistory = async () => {
