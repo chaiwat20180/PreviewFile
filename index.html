@@ -699,12 +699,50 @@
 
         const handleSaveImage = () => {
             if (!previewFile) return;
-            const a = document.createElement('a');
-            a.href = previewFile.url;
-            a.download = previewFile.name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            
+            // If not rotated, download directly
+            if (imgRotate % 360 === 0) {
+                const a = document.createElement('a');
+                a.href = previewFile.url;
+                a.download = previewFile.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                return;
+            }
+
+            // If rotated, use canvas to save
+            const img = new Image();
+            img.src = previewFile.url;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const radians = (imgRotate * Math.PI) / 180;
+                
+                // Swap dims if 90/270
+                if (imgRotate % 180 !== 0) {
+                    canvas.width = img.height;
+                    canvas.height = img.width;
+                } else {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                }
+
+                ctx.translate(canvas.width / 2, canvas.height / 2);
+                ctx.rotate(radians);
+                ctx.drawImage(img, -img.width / 2, -img.height / 2);
+
+                canvas.toBlob((blob) => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = previewFile.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            };
         };
 
         // --- RENDER ---
@@ -848,131 +886,122 @@
                 {/* Main Content */}
                 <div className="flex-1 w-full max-w-[95%] mx-auto p-4 md:p-6 grid grid-cols-1 md:grid-cols-12 gap-6">
                     
-                    {/* Left: Upload & List */}
-                    <div className="md:col-span-4 lg:col-span-3 space-y-6 flex flex-col">
-                        
-                        {/* Upload Card */}
-                        <div className="bg-surface rounded-2xl shadow-lg p-6 text-center border border-border transition-colors duration-300">
-                            {user || isGuest ? (
-                                <>
-                                    <div 
-                                        onClick={() => document.getElementById('fileInput').click()}
-                                        onDrop={onDrop}
-                                        onDragOver={onDragOver}
-                                        className={`border-2 border-dashed border-border bg-main rounded-xl p-8 cursor-pointer hover:border-primary transition active:scale-95 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
-                                    >
-                                        <input 
-                                            type="file" 
-                                            id="fileInput" 
-                                            className="hidden" 
-                                            accept=".html,.htm,.pdf,image/*" 
-                                            multiple
-                                            onChange={onFileChange} 
-                                        />
-                                        
-                                        {uploading ? (
-                                            <div className="flex flex-col items-center">
-                                                <div className="loader mb-3"></div>
-                                                <span className="text-sm text-primary animate-pulse">กำลังอัปโหลด...</span>
-                                            </div>
-                                        ) : (
-                                            <div className="flex flex-col items-center">
-                                                <div className="w-14 h-14 bg-surface border border-border text-primary rounded-full flex items-center justify-center mb-3 text-2xl shadow-sm">
-                                                    <i className="fas fa-cloud-upload-alt"></i>
+                    {/* Left: Upload & List (Hidden in Shared View) */}
+                    {!isSharedView && (
+                        <div className="md:col-span-4 lg:col-span-3 space-y-6 flex flex-col">
+                            
+                            {/* Upload Card */}
+                            <div className="bg-surface rounded-2xl shadow-lg p-6 text-center border border-border transition-colors duration-300">
+                                {user || isGuest ? (
+                                    <>
+                                        <div 
+                                            onClick={() => document.getElementById('fileInput').click()}
+                                            onDrop={onDrop}
+                                            onDragOver={onDragOver}
+                                            className={`border-2 border-dashed border-border bg-main rounded-xl p-8 cursor-pointer hover:border-primary transition active:scale-95 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
+                                        >
+                                            <input 
+                                                type="file" 
+                                                id="fileInput" 
+                                                className="hidden" 
+                                                accept=".html,.htm,.pdf,image/*" 
+                                                multiple
+                                                onChange={onFileChange} 
+                                            />
+                                            
+                                            {uploading ? (
+                                                <div className="flex flex-col items-center">
+                                                    <div className="loader mb-3"></div>
+                                                    <span className="text-sm text-primary animate-pulse">กำลังอัปโหลด...</span>
                                                 </div>
-                                                <h3 className="font-semibold text-text">แตะเพื่อเลือกไฟล์</h3>
-                                                <p className="text-xs text-muted mt-1">หรือลากไฟล์มาวางที่นี่</p>
-                                                <p className="text-[10px] text-muted mt-1">(หลายไฟล์: HTML, PDF, รูปภาพ)</p>
-                                                {isGuest && <span className="text-[10px] text-secondary mt-2 bg-secondary/10 px-2 py-0.5 rounded">โหมด Guest (Local)</span>}
-                                            </div>
+                                            ) : (
+                                                <div className="flex flex-col items-center">
+                                                    <div className="w-14 h-14 bg-surface border border-border text-primary rounded-full flex items-center justify-center mb-3 text-2xl shadow-sm">
+                                                        <i className="fas fa-cloud-upload-alt"></i>
+                                                    </div>
+                                                    <h3 className="font-semibold text-text">แตะเพื่อเลือกไฟล์</h3>
+                                                    <p className="text-xs text-muted mt-1">หรือลากไฟล์มาวางที่นี่</p>
+                                                    <p className="text-[10px] text-muted mt-1">(หลายไฟล์: HTML, PDF, รูปภาพ)</p>
+                                                    {isGuest && <span className="text-[10px] text-secondary mt-2 bg-secondary/10 px-2 py-0.5 rounded">โหมด Guest (Local)</span>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="py-8 text-muted">
+                                        <i className="fas fa-lock text-4xl mb-2 opacity-30"></i>
+                                        <p className="text-sm">กรุณาเข้าสู่ระบบ หรือเลือกใช้งานแบบไม่ต้อง Login</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* File List */}
+                            {(user || isGuest) && (
+                                <div className="bg-surface rounded-2xl shadow-lg border border-border overflow-hidden transition-colors duration-300">
+                                    <div className="px-5 py-3 border-b border-border bg-main flex justify-between items-center">
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="font-semibold text-text text-sm">ไฟล์ล่าสุด</h3>
+                                            <span className="text-xs bg-surface text-primary px-2 py-0.5 rounded-full border border-border">{files.length}</span>
+                                        </div>
+                                        {files.length > 0 && (
+                                            <button 
+                                                onClick={handleClearHistory} 
+                                                disabled={isClearing}
+                                                className={`text-[10px] transition flex items-center gap-1 ${isClearing ? 'text-gray-400 cursor-not-allowed' : 'text-muted hover:text-danger'}`}
+                                            >
+                                                {isClearing ? (
+                                                    <>
+                                                        <i className="fas fa-circle-notch fa-spin"></i> กำลังลบ...
+                                                    </>
+                                                ) : (
+                                                    isGuest ? 'ล้างรายการ' : 'ล้างประวัติ (ลบไฟล์)'
+                                                )}
+                                            </button>
                                         )}
                                     </div>
-                                </>
-                            ) : isSharedView ? (
-                                <div className="py-8 text-muted">
-                                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                                        <i className="fas fa-share-alt text-4xl text-primary opacity-50"></i>
-                                    </div>
-                                    <p className="text-sm font-medium">กำลังดูไฟล์ที่แชร์</p>
-                                    <p className="text-xs text-muted mt-2 opacity-75">เข้าสู่ระบบเพื่ออัปโหลดไฟล์ของคุณเอง</p>
-                                </div>
-                            ) : (
-                                <div className="py-8 text-muted">
-                                    <i className="fas fa-lock text-4xl mb-2 opacity-30"></i>
-                                    <p className="text-sm">กรุณาเข้าสู่ระบบ หรือเลือกใช้งานแบบไม่ต้อง Login</p>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* File List */}
-                        {(user || isGuest || isSharedView) && (
-                            <div className="bg-surface rounded-2xl shadow-lg border border-border overflow-hidden transition-colors duration-300">
-                                <div className="px-5 py-3 border-b border-border bg-main flex justify-between items-center">
-                                    <div className="flex items-center gap-2">
-                                        <h3 className="font-semibold text-text text-sm">ไฟล์ล่าสุด</h3>
-                                        <span className="text-xs bg-surface text-primary px-2 py-0.5 rounded-full border border-border">{files.length}</span>
-                                    </div>
-                                    {files.length > 0 && !isSharedView && (
-                                        <button 
-                                            onClick={handleClearHistory} 
-                                            disabled={isClearing}
-                                            className={`text-[10px] transition flex items-center gap-1 ${isClearing ? 'text-gray-400 cursor-not-allowed' : 'text-muted hover:text-danger'}`}
-                                        >
-                                            {isClearing ? (
-                                                <>
-                                                    <i className="fas fa-circle-notch fa-spin"></i> กำลังลบ...
-                                                </>
-                                            ) : (
-                                                isGuest ? 'ล้างรายการ' : 'ล้างประวัติ (ลบไฟล์)'
-                                            )}
-                                        </button>
-                                    )}
-                                </div>
-                                {/* Fixed height to show approx 10 items (approx 600px), then scroll */}
-                                <div className="max-h-[600px] overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                                    {files.length === 0 ? (
-                                        <div className="text-center py-8 text-muted text-sm">
-                                            ยังไม่มีไฟล์ในรายการ
-                                        </div>
-                                    ) : (
-                                        files.map(file => (
-                                            <div key={file.id} 
-                                                onClick={() => loadFileContentForPreview(file.id, file.mimeType, file.name, file)}
-                                                className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition border border-transparent 
-                                                    ${previewFile && previewFile.name === file.name ? 'bg-primary/10 border-primary/30' : 'hover:bg-hover hover:border-border'}`}
-                                            >
-                                                <div className="flex items-center gap-3 overflow-hidden flex-1">
-                                                    <div className="w-8 h-8 rounded-lg bg-main flex items-center justify-center flex-shrink-0 border border-border relative">
-                                                        <FileIcon mimeType={file.mimeType} />
-                                                        {file.source === 'local' && <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-surface"></div>}
+                                    <div className="max-h-[600px] overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                        {files.length === 0 ? (
+                                            <div className="text-center py-8 text-muted text-sm">
+                                                ยังไม่มีไฟล์ในรายการ
+                                            </div>
+                                        ) : (
+                                            files.map(file => (
+                                                <div key={file.id} 
+                                                    onClick={() => loadFileContentForPreview(file.id, file.mimeType, file.name, file)}
+                                                    className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition border border-transparent 
+                                                        ${previewFile && previewFile.name === file.name ? 'bg-primary/10 border-primary/30' : 'hover:bg-hover hover:border-border'}`}
+                                                >
+                                                    <div className="flex items-center gap-3 overflow-hidden flex-1">
+                                                        <div className="w-8 h-8 rounded-lg bg-main flex items-center justify-center flex-shrink-0 border border-border relative">
+                                                            <FileIcon mimeType={file.mimeType} />
+                                                            {file.source === 'local' && <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-surface"></div>}
+                                                        </div>
+                                                        <div className="truncate flex-1">
+                                                            <p className={`text-sm font-medium truncate group-hover:text-primary ${previewFile && previewFile.name === file.name ? 'text-primary' : 'text-text'}`}>
+                                                                {file.name}
+                                                            </p>
+                                                            <p className="text-[10px] text-muted uppercase flex items-center gap-1">
+                                                                {file.mimeType.split('/').pop()}
+                                                                {file.source === 'local' && <span className="text-secondary">• local</span>}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                    <div className="truncate flex-1">
-                                                        <p className={`text-sm font-medium truncate group-hover:text-primary ${previewFile && previewFile.name === file.name ? 'text-primary' : 'text-text'}`}>
-                                                            {file.name}
-                                                        </p>
-                                                        <p className="text-[10px] text-muted uppercase flex items-center gap-1">
-                                                            {file.mimeType.split('/').pop()}
-                                                            {file.source === 'local' && <span className="text-secondary">• local</span>}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                    {/* Share Button (Drive Only) */}
-                                                    {!isGuest && file.source !== 'local' && (
-                                                        <button
-                                                            onClick={(e) => handleShareFile(e, file)}
-                                                            disabled={sharingId === file.id}
-                                                            className="w-8 h-8 rounded-full bg-transparent hover:bg-primary/10 text-muted hover:text-primary flex items-center justify-center transition-colors"
-                                                            title="แชร์ไฟล์ (Public)"
-                                                        >
-                                                            {sharingId === file.id ? <i className="fas fa-circle-notch fa-spin text-xs"></i> : <i className="fas fa-share-alt text-xs"></i>}
-                                                        </button>
-                                                    )}
+                                                    <div className="flex items-center gap-1">
+                                                        {/* Share Button (Drive Only) */}
+                                                        {!isGuest && file.source !== 'local' && (
+                                                            <button
+                                                                onClick={(e) => handleShareFile(e, file)}
+                                                                disabled={sharingId === file.id}
+                                                                className="w-8 h-8 rounded-full bg-transparent hover:bg-primary/10 text-muted hover:text-primary flex items-center justify-center transition-colors"
+                                                                title="แชร์ไฟล์ (Public)"
+                                                            >
+                                                                {sharingId === file.id ? <i className="fas fa-circle-notch fa-spin text-xs"></i> : <i className="fas fa-share-alt text-xs"></i>}
+                                                            </button>
+                                                        )}
 
-                                                    {deletingId === file.id ? (
-                                                        <div className="loader w-4 h-4 border-2"></div>
-                                                    ) : (
-                                                        !isSharedView && (
+                                                        {deletingId === file.id ? (
+                                                            <div className="loader w-4 h-4 border-2"></div>
+                                                        ) : (
                                                             <button 
                                                                 onClick={(e) => handleDeleteFile(e, file.id)}
                                                                 className="w-8 h-8 rounded-full bg-transparent hover:bg-red-500/10 text-muted hover:text-red-500 flex items-center justify-center transition-colors"
@@ -980,26 +1009,26 @@
                                                             >
                                                                 <i className="fas fa-trash-alt text-xs"></i>
                                                             </button>
-                                                        )
-                                                    )}
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))
-                                    )}
+                                            ))
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Right: Preview */}
-                    <div className="md:col-span-8 lg:col-span-9 h-full">
+                    <div className={`${isSharedView ? 'col-span-1 md:col-span-12' : 'md:col-span-8 lg:col-span-9'} h-full`}>
                         {previewFile || previewLoading ? (
                             <div className="bg-surface rounded-2xl shadow-lg border border-border overflow-hidden flex flex-col h-full min-h-[600px] relative transition-colors duration-300">
                                 {/* Preview Header */}
-                                <div className="px-4 py-3 border-b border-border flex justify-between items-center bg-main">
+                                <div className="px-4 py-3 border-b border-border flex justify-between items-center bg-primary">
                                     <div className="flex items-center gap-2 overflow-hidden">
-                                        <div className={`w-2 h-2 rounded-full ${previewLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
-                                        <span className="text-sm font-medium text-text truncate max-w-[150px] md:max-w-md">
+                                        <div className={`w-2 h-2 rounded-full ${previewLoading ? 'bg-yellow-300 animate-pulse' : 'bg-green-400'}`}></div>
+                                        <span className="text-sm font-medium text-white truncate max-w-[150px] md:max-w-md">
                                             {previewFile ? previewFile.name : 'กำลังโหลด...'}
                                         </span>
                                     </div>
@@ -1007,14 +1036,14 @@
                                         {previewFile && !previewLoading && (
                                             <button 
                                                 onClick={() => setIsFullScreen(true)}
-                                                className="bg-danger hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm"
+                                                className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm backdrop-blur-sm"
                                             >
                                                 <i className="fas fa-expand"></i> แสดงเต็มจอ
                                             </button>
                                         )}
                                         <button 
-                                            onClick={() => { setPreviewFile(null); setPreviewLoading(false); }}
-                                            className="bg-hover hover:bg-border text-text px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 border border-border"
+                                            onClick={() => { setPreviewFile(null); setPreviewLoading(false); setIsSharedView(false); }}
+                                            className="bg-white/20 hover:bg-red-500/80 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 backdrop-blur-sm"
                                         >
                                             <i className="fas fa-times"></i> ปิด
                                         </button>
@@ -1033,7 +1062,7 @@
                                 </div>
                                 <h3 className="text-lg font-semibold text-text">พร้อมแสดงตัวอย่าง</h3>
                                 <p className="text-sm text-muted max-w-xs mt-2">
-                                    เลือกไฟล์จากรายการด้านซ้าย หรืออัปโหลดไฟล์ใหม่เพื่อดูตัวอย่าง (HTML, PDF, รูปภาพ)
+                                    {isSharedView ? 'กำลังโหลดไฟล์ที่แชร์...' : 'เลือกไฟล์จากรายการด้านซ้าย หรืออัปโหลดไฟล์ใหม่เพื่อดูตัวอย่าง (HTML, PDF, รูปภาพ)'}
                                 </p>
                             </div>
                         )}
