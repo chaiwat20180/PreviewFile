@@ -109,6 +109,7 @@
     const SCOPES = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,97,117,116,104,47,100,114,105,118,101,46,102,105,108,101]);
     const FOLDER_NAME = _d([85,112,108,111,97,100,70,105,108,101]);
     const DISCOVERY_DOC = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,100,105,115,99,111,118,101,114,121,47,118,49,47,97,112,105,115,47,100,114,105,118,101,47,118,51,47,114,101,115,116]);
+    const REDIRECT_URL = 'https://chaiwat20180.github.io/PreviewFile/';
 
     // --- COMPONENTS ---
     
@@ -171,13 +172,9 @@
                 });
                 setGapiInited(true);
                 
-                // Check for URL Parameter (Shared File)
                 const urlParams = new URLSearchParams(window.location.search);
                 const sharedId = urlParams.get('id');
-                if (sharedId) {
-                    loadSharedFile(sharedId);
-                }
-
+                
                 // Check for existing session
                 const storedToken = localStorage.getItem('gdrive_access_token');
                 if (storedToken) {
@@ -186,9 +183,19 @@
                         setUser(true);
                         setIsGuest(false);
                         fetchUserProfile();
+                        
+                        // If logged in and sharedId exists, just open preview, DON'T switch to SharedView (hides sidebar)
+                        if (sharedId) {
+                            loadSharedFile(sharedId, true); 
+                        }
                     } catch (e) {
                         console.error("Error restoring token", e);
                         localStorage.removeItem('gdrive_access_token');
+                    }
+                } else {
+                    // If not logged in and sharedId exists, Enter Shared View Mode
+                    if (sharedId) {
+                        loadSharedFile(sharedId, false);
                     }
                 }
             };
@@ -201,9 +208,8 @@
                 callback: async (tokenResponse) => {
                     if (tokenResponse && tokenResponse.access_token) {
                         localStorage.setItem('gdrive_access_token', tokenResponse.access_token);
-                        setUser(true);
-                        setIsGuest(false);
-                        fetchUserProfile();
+                        // Redirect after login
+                        window.location.assign(REDIRECT_URL);
                     }
                 },
             });
@@ -212,9 +218,13 @@
         }, []);
 
         // --- FETCH SHARED FILE (FROM URL) ---
-        const loadSharedFile = async (id) => {
+        const loadSharedFile = async (id, isAuthenticated) => {
             setPreviewLoading(true);
-            setIsSharedView(true); // Set shared mode
+            // Only enable "SharedView" (which hides sidebar) if user is NOT authenticated
+            if (!isAuthenticated) {
+                setIsSharedView(true);
+            }
+            
             try {
                 if (!gapi.client) await new Promise(r => setTimeout(r, 500));
 
@@ -224,7 +234,12 @@
                 });
                 const file = response.result;
                 
-                setFiles([file]);
+                // If not authenticated, we must setFiles to show *something* or just for internal ref
+                if (!isAuthenticated) {
+                    setFiles([file]);
+                } 
+                // If authenticated, we do NOT overwrite files (history). We just load preview.
+
                 loadFileContentForPreview(file.id, file.mimeType, file.name);
                 
                 const Toast = Swal.mixin({
@@ -311,11 +326,8 @@
                 gapi.client.setToken('');
             }
             localStorage.removeItem('gdrive_access_token'); 
-            setUser(null);
-            setUserId(null);
-            setFiles([]);
-            setPreviewFile(null);
-            setIsSharedView(false);
+            // Redirect after logout
+            window.location.assign(REDIRECT_URL);
         };
 
         const handleClearHistory = async () => {
@@ -411,7 +423,7 @@
                     })
                 });
 
-                const customLink = `https://chaiwat20180.github.io/PreviewFile/?id=${file.id}`;
+                const customLink = `${REDIRECT_URL}?id=${file.id}`;
 
                 try {
                     await navigator.clipboard.writeText(customLink);
@@ -1036,14 +1048,14 @@
                                         {previewFile && !previewLoading && (
                                             <button 
                                                 onClick={() => setIsFullScreen(true)}
-                                                className="bg-white/20 hover:bg-white/30 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm backdrop-blur-sm"
+                                                className="bg-blue-900 hover:bg-blue-950 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm"
                                             >
                                                 <i className="fas fa-expand"></i> แสดงเต็มจอ
                                             </button>
                                         )}
                                         <button 
                                             onClick={() => { setPreviewFile(null); setPreviewLoading(false); setIsSharedView(false); }}
-                                            className="bg-white/20 hover:bg-red-500/80 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 backdrop-blur-sm"
+                                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5"
                                         >
                                             <i className="fas fa-times"></i> ปิด
                                         </button>
