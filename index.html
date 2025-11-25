@@ -126,7 +126,7 @@
     // Encoded Credentials (ASCII)
     const API_KEY = _d([65,73,122,97,83,121,67,83,104,84,72,108,86,50,111,70,114,55,81,77,78,101,116,71,56,49,86,95,120,57,57,122,101,68,88,66,85,116,85]);
     const CLIENT_ID = _d([56,51,57,48,49,52,50,51,54,56,54,48,45,112,102,98,54,48,110,107,108,55,107,108,112,101,106,50,98,102,54,55,116,115,104,53,113,104,106,110,116,116,101,105,57,46,97,112,112,115,46,103,111,111,103,108,101,117,115,101,114,99,111,110,116,101,110,116,46,99,111,109]);
-    const SCOPES = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,97,117,116,104,47,100,114,105,118,101,46,102,105,108,101]);
+    const SCOPES = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,111,103,108,101,97,112,105,115,46,99,111,109,47,97,117,116,104,47,100,114,105,118,101,46,102,105,108,101]);
     const FOLDER_NAME = _d([85,112,108,111,97,100,70,105,108,101]);
     const DISCOVERY_DOC = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,100,105,115,99,111,118,101,114,121,47,118,49,47,97,112,105,115,47,100,114,105,118,101,47,118,51,47,114,101,115,116]);
     const REDIRECT_URL = 'https://chaiwat20180.github.io/PreviewFile/';
@@ -134,12 +134,13 @@
     // --- COMPONENTS ---
     
     const FileIcon = ({ mimeType }) => {
+        const type = mimeType || '';
         let iconClass = "fa-file text-muted";
-        if (mimeType.includes('image')) iconClass = "fa-file-image text-purple-500";
-        else if (mimeType.includes('pdf')) iconClass = "fa-file-pdf text-red-500";
-        else if (mimeType.includes('html')) iconClass = "fa-brands fa-html5 text-orange-500";
-        else if (mimeType.includes('video')) iconClass = "fa-file-video text-blue-500";
-        else if (mimeType.includes('folder')) iconClass = "fa-folder text-yellow-500";
+        if (type.includes('image')) iconClass = "fa-file-image text-purple-500";
+        else if (type.includes('pdf')) iconClass = "fa-file-pdf text-red-500";
+        else if (type.includes('html')) iconClass = "fa-brands fa-html5 text-orange-500";
+        else if (type.includes('video')) iconClass = "fa-file-video text-blue-500";
+        else if (type.includes('folder')) iconClass = "fa-folder text-yellow-500";
         
         return <i className={`fas ${iconClass} text-xl`}></i>;
     };
@@ -402,6 +403,12 @@
                 console.error("Error fetching user profile:", err);
                 if (err.status === 401) handleSignoutClick();
             }
+        };
+
+        const saveHistory = (uid, newFiles) => {
+            if (!uid) return;
+            const historyKey = `gdrive_history_${uid}`;
+            localStorage.setItem(historyKey, JSON.stringify(newFiles));
         };
 
         // --- ACTIONS ---
@@ -695,7 +702,7 @@
                 const newFileObj = {
                     id: 'local_' + Date.now() + Math.random().toString(36).substr(2, 9),
                     name: file.name,
-                    mimeType: file.type,
+                    mimeType: file.type || 'application/octet-stream',
                     webViewLink: null,
                     source: 'local',
                     blobUrl: localUrl
@@ -729,7 +736,7 @@
                 return {
                     id: data.id,
                     name: data.name,
-                    mimeType: data.mimeType,
+                    mimeType: data.mimeType || 'application/octet-stream',
                     webViewLink: data.webViewLink,
                     source: 'drive'
                 };
@@ -781,9 +788,11 @@
                 fileObj = files.find(f => f.id === fileId);
             }
 
+            const safeType = mimeType || '';
+
             try {
                 if (fileObj && fileObj.source === 'local') {
-                    setPreviewFile({ url: fileObj.blobUrl, type: mimeType, name: fileName });
+                    setPreviewFile({ url: fileObj.blobUrl, type: safeType, name: fileName });
                     setIsFullScreen(false);
                 } else {
                     let fetchUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
@@ -801,10 +810,10 @@
                     if (!fetchRes.ok) throw new Error("Fetch failed or permission denied");
 
                     const blob = await fetchRes.blob();
-                    const type = mimeType.includes('html') ? 'text/html' : mimeType;
+                    const type = safeType.includes('html') ? 'text/html' : safeType;
                     const url = URL.createObjectURL(new Blob([blob], { type: type }));
                     
-                    setPreviewFile({ url, type: mimeType, name: fileName });
+                    setPreviewFile({ url, type: safeType, name: fileName });
                     setIsFullScreen(false);
                 }
 
@@ -1136,7 +1145,7 @@
                                                                 {file.name}
                                                             </p>
                                                             <p className="text-[10px] text-muted uppercase flex items-center gap-1">
-                                                                {file.mimeType.split('/').pop()}
+                                                                {(file.mimeType || '').split('/').pop()}
                                                                 {file.source === 'local' && <span className="text-secondary">• local</span>}
                                                             </p>
                                                         </div>
