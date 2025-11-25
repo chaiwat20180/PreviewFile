@@ -126,6 +126,7 @@
     const App = () => {
         const [user, setUser] = React.useState(null); // true if logged in
         const [isGuest, setIsGuest] = React.useState(false); // New: Guest mode state
+        const [isSharedView, setIsSharedView] = React.useState(false); // New: Shared view mode
         const [userId, setUserId] = React.useState(null); // Unique User ID from Google
         const [tokenClient, setTokenClient] = React.useState(null);
         const [gapiInited, setGapiInited] = React.useState(false);
@@ -138,11 +139,14 @@
         const [isDarkMode, setIsDarkMode] = React.useState(true);
         const [deletingId, setDeletingId] = React.useState(null);
         const [isClearing, setIsClearing] = React.useState(false);
-        const [sharingId, setSharingId] = React.useState(null); // State for sharing spinner
+        const [sharingId, setSharingId] = React.useState(null);
         
         // Image Manipulation State
         const [imgScale, setImgScale] = React.useState(1);
         const [imgRotate, setImgRotate] = React.useState(0);
+        const [pan, setPan] = React.useState({ x: 0, y: 0 });
+        const [isDragging, setIsDragging] = React.useState(false);
+        const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 });
 
         // --- THEME LOGIC ---
         React.useEffect(() => {
@@ -210,8 +214,8 @@
         // --- FETCH SHARED FILE (FROM URL) ---
         const loadSharedFile = async (id) => {
             setPreviewLoading(true);
+            setIsSharedView(true); // Set shared mode
             try {
-                // Wait slightly for GAPI to define 'client' if race condition
                 if (!gapi.client) await new Promise(r => setTimeout(r, 500));
 
                 const response = await gapi.client.drive.files.get({
@@ -220,17 +224,13 @@
                 });
                 const file = response.result;
                 
-                // Add to file list temporarily so it looks consistent
                 setFiles([file]);
-                
-                // Load preview content
                 loadFileContentForPreview(file.id, file.mimeType, file.name);
                 
-                // Show success toast
                 const Toast = Swal.mixin({
                     toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true
                 });
-                Toast.fire({ icon: 'success', title: 'โหลดไฟล์ที่แชร์เรียบร้อย' });
+                Toast.fire({ icon: 'success', title: 'กำลังดูไฟล์ที่แชร์' });
 
             } catch (err) {
                 console.error("Load shared file error:", err);
@@ -247,7 +247,6 @@
         // --- USER PROFILE & HISTORY ---
         const fetchUserProfile = async () => {
             try {
-                // Get user info to use as a key for localStorage
                 const response = await gapi.client.drive.about.get({
                     fields: 'user'
                 });
@@ -255,7 +254,6 @@
                 const uniqueId = currentUser.permissionId;
                 setUserId(uniqueId);
                 
-                // Load history for this user
                 loadHistory(uniqueId);
             } catch (err) {
                 console.error("Error fetching user profile:", err);
@@ -293,8 +291,9 @@
         const handleGuestClick = () => {
             setIsGuest(true);
             setUser(null);
-            setFiles([]); // Start with empty list for guest
+            setFiles([]); 
             setUserId('guest');
+            setIsSharedView(false); // Reset shared view when entering guest
         };
 
         const handleSignoutClick = () => {
@@ -316,6 +315,7 @@
             setUserId(null);
             setFiles([]);
             setPreviewFile(null);
+            setIsSharedView(false);
         };
 
         const handleClearHistory = async () => {
@@ -387,7 +387,6 @@
 
             setSharingId(file.id);
             
-            // Show Loading
             Swal.fire({
                 title: 'กำลังสร้างลิงก์แชร์...',
                 html: 'กำลังเปิดสิทธิ์การเข้าถึงและคัดลอกลิงก์',
@@ -400,7 +399,6 @@
             try {
                 const token = gapi.client.getToken().access_token;
                 
-                // 1. Update Permission to "anyone with link" (reader)
                 await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}/permissions`, {
                     method: 'POST',
                     headers: {
@@ -413,10 +411,8 @@
                     })
                 });
 
-                // 2. Construct Custom Link
                 const customLink = `https://chaiwat20180.github.io/PreviewFile/?id=${file.id}`;
 
-                // 3. Copy link to clipboard
                 try {
                     await navigator.clipboard.writeText(customLink);
                     Swal.fire({
@@ -483,7 +479,6 @@
                             setPreviewFile(null);
                         }
                         
-                        // Simple toast for single delete
                         const Toast = Swal.mixin({
                             toast: true, position: 'top-end', showConfirmButton: false, timer: 2000, timerProgressBar: true
                         });
@@ -535,12 +530,10 @@
             return validTypes.some(type => file.type.includes(type) || file.type.startsWith('image/'));
         };
 
-        // Internal single upload
         const uploadSingleFile = async (file) => {
             if (!isValidFileType(file)) return null;
 
             if (isGuest) {
-                // --- Guest Mode (Local) ---
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
                 const localUrl = URL.createObjectURL(file);
@@ -554,7 +547,6 @@
                 };
                 return newFileObj;
             } else {
-                // --- Drive Mode (Cloud) ---
                 const folderId = await getOrCreateFolder();
                 if (!folderId) throw new Error("No folder ID");
 
@@ -611,7 +603,6 @@
                         saveHistory(userId, updated);
                         return updated;
                     });
-                    // Preview the first newly uploaded file
                     const firstFile = newFiles[0];
                     loadFileContentForPreview(firstFile.id, firstFile.mimeType, firstFile.name, firstFile);
                 }
@@ -627,10 +618,9 @@
         // --- PREVIEW LOGIC ---
         const loadFileContentForPreview = async (fileId, mimeType, fileName, fileObj = null) => {
             setPreviewLoading(true);
-            
-            // Reset image manipulation state
             setImgScale(1);
             setImgRotate(0);
+            setPan({ x: 0, y: 0 }); // Reset Pan
 
             if (!fileObj) {
                 fileObj = files.find(f => f.id === fileId);
@@ -641,9 +631,6 @@
                     setPreviewFile({ url: fileObj.blobUrl, type: mimeType, name: fileName });
                     setIsFullScreen(false);
                 } else {
-                    // Handle fetching from Google Drive
-                    // Logic: Try access token first. If no token (shared link view), try public fetch with API Key.
-                    
                     let fetchUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
                     let headers = {};
                     
@@ -651,7 +638,6 @@
                     if (tokenObj && tokenObj.access_token) {
                         headers['Authorization'] = `Bearer ${tokenObj.access_token}`;
                     } else {
-                        // Fallback for public files via API Key
                         fetchUrl += `&key=${API_KEY}`;
                     }
 
@@ -670,7 +656,7 @@
             } catch (err) {
                 console.error("Preview error:", err);
                 Swal.fire('ไม่สามารถโหลดไฟล์ได้', 'ไฟล์อาจเป็นส่วนตัวหรือลิงก์หมดอายุ', 'error');
-                setPreviewFile(null); // Clear invalid preview
+                setPreviewFile(null); 
             } finally {
                 setPreviewLoading(false); 
             }
@@ -696,7 +682,21 @@
         const handleZoomIn = () => setImgScale(prev => Math.min(prev + 0.25, 3));
         const handleZoomOut = () => setImgScale(prev => Math.max(prev - 0.25, 0.5));
         const handleRotate = () => setImgRotate(prev => prev + 90);
-        const handleResetImg = () => { setImgScale(1); setImgRotate(0); };
+        const handleResetImg = () => { setImgScale(1); setImgRotate(0); setPan({ x: 0, y: 0 }); };
+        
+        // --- IMAGE PANNING ---
+        const handleMouseDown = (e) => {
+            e.preventDefault();
+            setIsDragging(true);
+            setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+        };
+        const handleMouseMove = (e) => {
+            if (!isDragging) return;
+            e.preventDefault();
+            setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
+        };
+        const handleMouseUp = () => setIsDragging(false);
+
         const handleSaveImage = () => {
             if (!previewFile) return;
             const a = document.createElement('a');
@@ -723,29 +723,36 @@
 
             if (type.includes('image')) {
                 return (
-                    <div className="w-full h-full relative flex items-center justify-center bg-slate-900 overflow-hidden">
+                    <div 
+                        className="w-full h-full relative flex items-center justify-center bg-slate-900 overflow-hidden"
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        style={{ cursor: isDragging ? 'grabbing' : (imgScale > 1 ? 'grab' : 'default') }}
+                    >
                         <div 
-                            className="transition-transform duration-200 ease-out origin-center"
-                            style={{ transform: `scale(${imgScale}) rotate(${imgRotate}deg)` }}
+                            className="transition-transform duration-75 ease-out origin-center will-change-transform"
+                            style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${imgScale}) rotate(${imgRotate}deg)` }}
                         >
-                            <img src={url} alt="Preview" className="max-w-full max-h-[80vh] object-contain shadow-lg" />
+                            <img src={url} alt="Preview" className="max-w-full max-h-[80vh] object-contain shadow-lg pointer-events-none" />
                         </div>
                         
                         {/* Image Floating Toolbar */}
-                        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-2 bg-surface/90 backdrop-blur-md p-2 rounded-full shadow-xl border border-border z-20">
-                            <button onClick={handleZoomIn} className="w-10 h-10 rounded-full hover:bg-hover text-text flex items-center justify-center transition" title="Zoom In">
+                        <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-2 bg-slate-800/90 p-2 rounded-full shadow-xl border border-slate-700 z-20 text-white">
+                            <button onClick={handleZoomIn} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom In">
                                 <i className="fas fa-search-plus"></i>
                             </button>
-                            <button onClick={handleZoomOut} className="w-10 h-10 rounded-full hover:bg-hover text-text flex items-center justify-center transition" title="Zoom Out">
+                            <button onClick={handleZoomOut} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom Out">
                                 <i className="fas fa-search-minus"></i>
                             </button>
-                            <button onClick={handleRotate} className="w-10 h-10 rounded-full hover:bg-hover text-text flex items-center justify-center transition" title="Rotate">
+                            <button onClick={handleRotate} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Rotate">
                                 <i className="fas fa-sync-alt"></i>
                             </button>
-                            <button onClick={handleResetImg} className="w-10 h-10 rounded-full hover:bg-hover text-text flex items-center justify-center transition" title="Reset">
+                            <button onClick={handleResetImg} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Reset">
                                 <i className="fas fa-undo"></i>
                             </button>
-                            <div className="w-px bg-border mx-1"></div>
+                            <div className="w-px bg-slate-600 mx-1"></div>
                             <button onClick={handleSaveImage} className="w-10 h-10 rounded-full hover:bg-primary hover:text-white text-primary flex items-center justify-center transition" title="Save Image">
                                 <i className="fas fa-download"></i>
                             </button>
@@ -782,7 +789,7 @@
                             <div>
                                 <h1 className="text-lg font-bold leading-tight text-text">Drive Upload</h1>
                                 <p className="text-xs text-muted flex items-center gap-1">
-                                    {isGuest ? <span className="text-secondary font-medium"><i className="fas fa-user-secret"></i> Guest Mode (Local)</span> : "HTML, PDF & Image Preview"}
+                                    {isGuest ? <span className="text-secondary font-medium"><i className="fas fa-user-secret"></i> Guest Mode (Local)</span> : (isSharedView ? <span className="text-primary font-medium"><i className="fas fa-share-alt"></i> Shared View Mode</span> : "HTML, PDF & Image Preview")}
                                 </p>
                             </div>
                         </div>
@@ -881,6 +888,14 @@
                                         )}
                                     </div>
                                 </>
+                            ) : isSharedView ? (
+                                <div className="py-8 text-muted">
+                                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                                        <i className="fas fa-share-alt text-4xl text-primary opacity-50"></i>
+                                    </div>
+                                    <p className="text-sm font-medium">กำลังดูไฟล์ที่แชร์</p>
+                                    <p className="text-xs text-muted mt-2 opacity-75">เข้าสู่ระบบเพื่ออัปโหลดไฟล์ของคุณเอง</p>
+                                </div>
                             ) : (
                                 <div className="py-8 text-muted">
                                     <i className="fas fa-lock text-4xl mb-2 opacity-30"></i>
@@ -890,14 +905,14 @@
                         </div>
 
                         {/* File List */}
-                        {(user || isGuest) && (
+                        {(user || isGuest || isSharedView) && (
                             <div className="bg-surface rounded-2xl shadow-lg border border-border overflow-hidden transition-colors duration-300">
                                 <div className="px-5 py-3 border-b border-border bg-main flex justify-between items-center">
                                     <div className="flex items-center gap-2">
                                         <h3 className="font-semibold text-text text-sm">ไฟล์ล่าสุด</h3>
                                         <span className="text-xs bg-surface text-primary px-2 py-0.5 rounded-full border border-border">{files.length}</span>
                                     </div>
-                                    {files.length > 0 && (
+                                    {files.length > 0 && !isSharedView && (
                                         <button 
                                             onClick={handleClearHistory} 
                                             disabled={isClearing}
@@ -957,13 +972,15 @@
                                                     {deletingId === file.id ? (
                                                         <div className="loader w-4 h-4 border-2"></div>
                                                     ) : (
-                                                        <button 
-                                                            onClick={(e) => handleDeleteFile(e, file.id)}
-                                                            className="w-8 h-8 rounded-full bg-transparent hover:bg-red-500/10 text-muted hover:text-red-500 flex items-center justify-center transition-colors"
-                                                            title="ลบไฟล์"
-                                                        >
-                                                            <i className="fas fa-trash-alt text-xs"></i>
-                                                        </button>
+                                                        !isSharedView && (
+                                                            <button 
+                                                                onClick={(e) => handleDeleteFile(e, file.id)}
+                                                                className="w-8 h-8 rounded-full bg-transparent hover:bg-red-500/10 text-muted hover:text-red-500 flex items-center justify-center transition-colors"
+                                                                title="ลบไฟล์"
+                                                            >
+                                                                <i className="fas fa-trash-alt text-xs"></i>
+                                                            </button>
+                                                        )
                                                     )}
                                                 </div>
                                             </div>
