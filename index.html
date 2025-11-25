@@ -248,7 +248,8 @@
                 setGapiInited(true);
                 
                 const urlParams = new URLSearchParams(window.location.search);
-                const sharedId = urlParams.get('id');
+                const sharedId = urlParams.get('id'); // Google Drive ID
+                const sharedUrl = urlParams.get('url'); // Guest Mode URL
                 
                 // Check for existing session
                 const storedToken = localStorage.getItem('gdrive_access_token');
@@ -261,24 +262,33 @@
                         setIsGuest(false);
                         fetchUserProfile();
                         
+                        // If logged in, handle shared params by opening preview directly
                         if (sharedId) {
                             loadSharedFile(sharedId, true); 
+                        } else if (sharedUrl) {
+                            loadGuestFileFromUrl(sharedUrl);
                         }
                     } catch (e) {
                         console.error("Error restoring token", e);
                         localStorage.removeItem('gdrive_access_token');
                     }
                 } else if (storedGuest === 'true') {
+                    // Restore Guest Mode
                     setIsGuest(true);
                     setUser(null);
                     setUserId('guest');
                     
                     if (sharedId) {
                         loadSharedFile(sharedId, true);
+                    } else if (sharedUrl) {
+                        loadGuestFileFromUrl(sharedUrl);
                     }
                 } else {
+                    // Not logged in
                     if (sharedId) {
                         loadSharedFile(sharedId, false);
+                    } else if (sharedUrl) {
+                        loadGuestFileFromUrl(sharedUrl);
                     }
                 }
             };
@@ -299,7 +309,46 @@
             setGisInited(true);
         }, []);
 
-        // --- FETCH SHARED FILE ---
+        // --- HELPER: GUESS MIME TYPE ---
+        const getMimeTypeFromUrl = (url) => {
+            const ext = url.split('.').pop().toLowerCase();
+            if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'image/' + ext;
+            if (['pdf'].includes(ext)) return 'application/pdf';
+            if (['html', 'htm'].includes(ext)) return 'text/html';
+            return 'application/octet-stream';
+        };
+
+        // --- FETCH GUEST SHARED FILE (FROM URL param) ---
+        const loadGuestFileFromUrl = (url) => {
+            const decodedUrl = decodeURIComponent(url);
+            setIsSharedView(true);
+            setPreviewLoading(true);
+            
+            // Create a dummy file object
+            const fileName = decodedUrl.split('/').pop() || 'Shared Guest File';
+            const mimeType = getMimeTypeFromUrl(fileName);
+            
+            const guestFile = {
+                id: 'guest_shared',
+                name: fileName,
+                mimeType: mimeType,
+                source: 'local', // Treat as local/guest source
+                blobUrl: decodedUrl, // Use the direct link as blobUrl
+                webViewLink: decodedUrl
+            };
+            
+            setFiles([guestFile]);
+            setPreviewFile({ url: decodedUrl, type: mimeType, name: fileName });
+            setIsFullScreen(false);
+            setPreviewLoading(false);
+            
+            const Toast = Swal.mixin({
+                toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true
+            });
+            Toast.fire({ icon: 'success', title: 'กำลังดูไฟล์ Guest' });
+        };
+
+        // --- FETCH SHARED FILE (FROM ID param) ---
         const loadSharedFile = async (id, isAuthenticated) => {
             setPreviewLoading(true);
             if (!isAuthenticated) {
@@ -485,21 +534,24 @@
                             }
 
                             // Litterbox returns the URL as plain text
-                            const shareLink = await response.text();
+                            const uploadUrl = await response.text();
                             
-                            if (shareLink.startsWith('http')) {
+                            if (uploadUrl.startsWith('http')) {
+                                // Create custom share link with ?url parameter
+                                const customShareLink = `${REDIRECT_URL}?url=${encodeURIComponent(uploadUrl)}`;
+
                                 Swal.fire({
                                     icon: 'success',
                                     title: 'สร้างลิงก์แชร์สำเร็จ!',
-                                    html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ 24 ชั่วโมง:</p>
-                                           <input type="text" value="${shareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm text-center" readonly onclick="this.select()">`,
+                                    html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ 24 ชั่วโมง (เปิดดูได้ทันที):</p>
+                                           <input type="text" value="${customShareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm text-center" readonly onclick="this.select()">`,
                                     confirmButtonText: 'คัดลอกและปิด',
                                     preConfirm: () => {
-                                        navigator.clipboard.writeText(shareLink);
+                                        navigator.clipboard.writeText(customShareLink);
                                     }
                                 });
                             } else {
-                                throw new Error('Upload failed: ' + shareLink);
+                                throw new Error('Upload failed: ' + uploadUrl);
                             }
                         } catch (err) {
                             console.error("Guest upload error:", err);
@@ -604,9 +656,9 @@
 
                         const updatedFiles = files.filter(f => f.id !== fileId);
                         setFiles(updatedFiles);
-                        
-                        // Re-sync to keep consistent
-                        // if (userId) syncFilesFromDrive(userId);
+                        if (userId) {
+                            saveHistory(userId, updatedFiles);
+                        }
 
                         if (previewFile && (previewFile.url.includes(fileId) || (files.find(f => f.id === fileId && previewFile.name === f.name)))) { 
                             setPreviewFile(null);
@@ -703,6 +755,7 @@
                 if (newFiles.length > 0) {
                     setFiles(prev => {
                         const updated = [...newFiles, ...prev];
+                        saveHistory(userId, updated);
                         return updated;
                     });
                     const firstFile = newFiles[0];
