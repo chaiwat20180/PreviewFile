@@ -92,6 +92,26 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+        
+        /* Background Pattern */
+        .bg-pattern {
+            background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        @keyframes bounce-slow {
+            0%, 100% { transform: translateY(-5%); }
+            50% { transform: translateY(5%); }
+        }
+        .animate-bounce-slow {
+            animation: bounce-slow 3s infinite ease-in-out;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.2s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -163,6 +183,63 @@
             setIsDarkMode(!isDarkMode);
         };
 
+        // --- DRIVE HELPER FUNCTIONS (Moved up for access) ---
+        const getOrCreateFolder = async () => {
+            try {
+                const q = `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`;
+                const response = await gapi.client.drive.files.list({
+                    q: q,
+                    fields: 'files(id, name)',
+                    spaces: 'drive',
+                });
+
+                if (response.result.files.length > 0) {
+                    return response.result.files[0].id;
+                } else {
+                    const fileMetadata = {
+                        name: FOLDER_NAME,
+                        mimeType: 'application/vnd.google-apps.folder',
+                    };
+                    const folder = await gapi.client.drive.files.create({
+                        resource: fileMetadata,
+                        fields: 'id',
+                    });
+                    return folder.result.id;
+                }
+            } catch (err) {
+                console.error("Error getting folder:", err);
+                return null;
+            }
+        };
+
+        const syncFilesFromDrive = async (uid) => {
+            try {
+                const folderId = await getOrCreateFolder();
+                if (!folderId) return;
+
+                const response = await gapi.client.drive.files.list({
+                    q: `'${folderId}' in parents and trashed=false`,
+                    fields: 'files(id, name, mimeType, webViewLink)',
+                    orderBy: 'createdTime desc',
+                    pageSize: 100 
+                });
+
+                const driveFiles = response.result.files.map(file => ({
+                    id: file.id,
+                    name: file.name,
+                    mimeType: file.mimeType,
+                    webViewLink: file.webViewLink,
+                    source: 'drive'
+                }));
+
+                setFiles(driveFiles);
+                // Cache for redundancy, but main source is now Drive
+                // saveHistory(uid, driveFiles); 
+            } catch (err) {
+                console.error("Sync error:", err);
+            }
+        };
+
         // --- AUTH & INIT LOGIC ---
         React.useEffect(() => {
             const initializeGapiClient = async () => {
@@ -219,7 +296,7 @@
                 callback: async (tokenResponse) => {
                     if (tokenResponse && tokenResponse.access_token) {
                         localStorage.setItem('gdrive_access_token', tokenResponse.access_token);
-                        // Redirect to specific URL after login
+                        // Refresh for redirect (using REDIRECT_URL logic)
                         window.location.href = REDIRECT_URL;
                     }
                 },
@@ -244,6 +321,8 @@
                 });
                 const file = response.result;
                 
+                // If not authenticated, show this single file
+                // If authenticated, syncFilesFromDrive handles the list, we just preview this one
                 if (!isAuthenticated) {
                     setFiles([file]);
                 } 
@@ -277,24 +356,11 @@
                 const uniqueId = currentUser.permissionId;
                 setUserId(uniqueId);
                 
-                loadHistory(uniqueId);
+                // Sync from cloud instead of local storage
+                syncFilesFromDrive(uniqueId);
             } catch (err) {
                 console.error("Error fetching user profile:", err);
                 if (err.status === 401) handleSignoutClick();
-            }
-        };
-
-        const loadHistory = (uid) => {
-            const historyKey = `gdrive_history_${uid}`;
-            const storedHistory = localStorage.getItem(historyKey);
-            if (storedHistory) {
-                try {
-                    setFiles(JSON.parse(storedHistory));
-                } catch (e) {
-                    console.error("Error parsing history", e);
-                }
-            } else {
-                setFiles([]);
             }
         };
 
@@ -374,10 +440,10 @@
 
                         await Promise.all(deletePromises);
 
-                        setFiles([]);
-                        if (userId && !isGuest) {
-                            localStorage.removeItem(`gdrive_history_${userId}`);
-                        }
+                        // Re-sync to be sure
+                        if (userId) syncFilesFromDrive(userId);
+                        else setFiles([]);
+
                         setPreviewFile(null);
                         Swal.fire('ลบเสร็จสิ้น!', 'ไฟล์ทั้งหมดถูกลบเรียบร้อยแล้ว', 'success');
 
@@ -505,36 +571,6 @@
                     }
                 }
             });
-        };
-
-        // --- DRIVE LOGIC ---
-        const getOrCreateFolder = async () => {
-            try {
-                const q = `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`;
-                const response = await gapi.client.drive.files.list({
-                    q: q,
-                    fields: 'files(id, name)',
-                    spaces: 'drive',
-                });
-
-                if (response.result.files.length > 0) {
-                    return response.result.files[0].id;
-                } else {
-                    const fileMetadata = {
-                        name: FOLDER_NAME,
-                        mimeType: 'application/vnd.google-apps.folder',
-                    };
-                    const folder = await gapi.client.drive.files.create({
-                        resource: fileMetadata,
-                        fields: 'id',
-                    });
-                    return folder.result.id;
-                }
-            } catch (err) {
-                console.error("Error getting folder:", err);
-                if(err.status === 401) handleSignoutClick(); 
-                return null;
-            }
         };
 
         const isValidFileType = (file) => {
@@ -1110,27 +1146,3 @@
     root.render(<App />);
 
 </script>
-
-<style>
-    .bg-pattern {
-        background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
-        background-size: 20px 20px;
-    }
-    @keyframes bounce-slow {
-        0%, 100% { transform: translateY(-5%); }
-        50% { transform: translateY(5%); }
-    }
-    .animate-bounce-slow {
-        animation: bounce-slow 3s infinite ease-in-out;
-    }
-    .animate-fade-in {
-        animation: fadeIn 0.2s ease-out;
-    }
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
-</style>
-
-</body>
-</html>
