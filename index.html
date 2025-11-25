@@ -128,7 +128,7 @@
     const CLIENT_ID = _d([56,51,57,48,49,52,50,51,54,56,54,48,45,112,102,98,54,48,110,107,108,55,107,108,112,101,106,50,98,102,54,55,116,115,104,53,113,104,106,110,116,116,101,105,57,46,97,112,112,115,46,103,111,111,103,108,101,117,115,101,114,99,111,110,116,101,110,116,46,99,111,109]);
     const SCOPES = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,111,103,108,101,97,112,105,115,46,99,111,109,47,97,117,116,104,47,100,114,105,118,101,46,102,105,108,101]);
     const FOLDER_NAME = _d([85,112,108,111,97,100,70,105,108,101]);
-    const DISCOVERY_DOC = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,111,103,108,101,97,112,105,115,46,99,111,118,101,114,121,47,118,49,47,97,112,105,115,47,100,114,105,118,101,47,118,51,47,114,101,115,116]);
+    const DISCOVERY_DOC = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,100,105,115,99,111,118,101,114,121,47,118,49,47,97,112,105,115,47,100,114,105,118,101,47,118,51,47,114,101,115,116]);
     const REDIRECT_URL = 'https://chaiwat20180.github.io/PreviewFile/';
 
     // --- COMPONENTS ---
@@ -325,38 +325,25 @@
             setIsSharedView(true);
             setPreviewLoading(true);
             
+            // Create a dummy file object
             const fileName = decodedUrl.split('/').pop() || 'Shared Guest File';
             const mimeType = getMimeTypeFromUrl(fileName);
             
             let previewUrl = decodedUrl;
-            let useGoogleDocs = false;
 
-            // ATTEMPT TO FETCH VIA PROXY TO BYPASS CORS
-            if (mimeType === 'text/html' || mimeType === 'application/pdf') {
+            // Fix for HTML files from Litterbox/External sites
+            // They usually serve HTML as text/plain or attachment. We must fetch and blob it as text/html.
+            if (mimeType === 'text/html') {
                 try {
-                    // Strategy 1: Try corsproxy.io (Better for binary)
-                    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(decodedUrl)}`;
-                    let response = await fetch(proxyUrl);
-                    
-                    // Strategy 2: Fallback to AllOrigins if Strategy 1 fails
-                    if (!response.ok) {
-                        console.warn("Primary proxy failed, trying backup...");
-                        const backupProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(decodedUrl)}`;
-                        response = await fetch(backupProxyUrl);
-                    }
-
+                    const response = await fetch(decodedUrl);
                     if (response.ok) {
-                        const blob = await response.blob();
-                        const newBlob = new Blob([blob], { type: mimeType });
-                        previewUrl = URL.createObjectURL(newBlob);
-                    } else {
-                        throw new Error(`Fetch failed with status ${response.status}`);
+                        const text = await response.text();
+                        const blob = new Blob([text], { type: 'text/html' });
+                        previewUrl = URL.createObjectURL(blob);
                     }
                 } catch (e) {
-                    console.warn("All proxies failed:", e);
-                    if (mimeType === 'application/pdf') {
-                        useGoogleDocs = true; // Fallback for PDF
-                    }
+                    console.warn("Could not fetch HTML content for preview (CORS?):", e);
+                    // Fallback to original URL if fetch fails
                 }
             }
             
@@ -364,20 +351,13 @@
                 id: 'guest_shared',
                 name: fileName,
                 mimeType: mimeType,
-                source: 'local',
-                blobUrl: previewUrl,
-                webViewLink: decodedUrl,
-                useGoogleDocs: useGoogleDocs
+                source: 'local', // Treat as local/guest source
+                blobUrl: previewUrl, // Use the potentially modified blobUrl
+                webViewLink: decodedUrl
             };
             
             setFiles([guestFile]);
-            setPreviewFile({ 
-                url: previewUrl, 
-                type: mimeType, 
-                name: fileName, 
-                originalUrl: decodedUrl,
-                useGoogleDocs: useGoogleDocs 
-            });
+            setPreviewFile({ url: previewUrl, type: mimeType, name: fileName });
             setIsFullScreen(false);
             setPreviewLoading(false);
             
@@ -959,7 +939,7 @@
             }
 
             if (!previewFile) return null;
-            const { type, url, useGoogleDocs, originalUrl } = previewFile;
+            const { type, url } = previewFile;
 
             if (type.includes('image')) {
                 return (
@@ -1002,31 +982,16 @@
             } else if (type.includes('pdf')) {
                 return (
                     <div className="w-full h-full relative group">
-                        {useGoogleDocs ? (
-                            <iframe src={`https://docs.google.com/viewer?url=${encodeURIComponent(originalUrl)}&embedded=true`} className="w-full h-full bg-white" title="PDF Preview"></iframe>
-                        ) : (
-                            <iframe src={url} className="w-full h-full bg-white" title="PDF Preview"></iframe>
-                        )}
+                        <iframe src={url} className="w-full h-full bg-white" title="PDF Preview"></iframe>
                         <div className="absolute bottom-4 right-4 z-10">
-                             <a href={originalUrl || url} target="_blank" rel="noreferrer" className="bg-primary text-white px-4 py-2 rounded-full shadow-lg text-sm hover:bg-blue-600 transition flex items-center gap-2">
+                             <a href={url} target="_blank" rel="noreferrer" className="bg-primary text-white px-4 py-2 rounded-full shadow-lg text-sm hover:bg-blue-600 transition flex items-center gap-2">
                                 <i className="fas fa-external-link-alt"></i> เปิดไฟล์ PDF
                              </a>
                         </div>
                     </div>
                 );
             } else {
-                return (
-                    <div className="w-full h-full relative">
-                        <iframe src={url} className="w-full h-full bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin"></iframe>
-                        {originalUrl && (
-                            <div className="absolute bottom-4 right-4 z-10">
-                                <a href={originalUrl} target="_blank" rel="noreferrer" className="bg-primary text-white px-4 py-2 rounded-full shadow-lg text-sm hover:bg-blue-600 transition flex items-center gap-2">
-                                    <i className="fas fa-external-link-alt"></i> เปิดไฟล์ต้นฉบับ
-                                </a>
-                            </div>
-                        )}
-                    </div>
-                );
+                return <iframe src={url} className="w-full h-full bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin"></iframe>;
             }
         };
 
