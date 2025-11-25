@@ -320,7 +320,7 @@
         };
 
         // --- FETCH GUEST SHARED FILE (FROM URL param) ---
-        const loadGuestFileFromUrl = (url) => {
+        const loadGuestFileFromUrl = async (url) => {
             const decodedUrl = decodeURIComponent(url);
             setIsSharedView(true);
             setPreviewLoading(true);
@@ -329,17 +329,35 @@
             const fileName = decodedUrl.split('/').pop() || 'Shared Guest File';
             const mimeType = getMimeTypeFromUrl(fileName);
             
+            let previewUrl = decodedUrl;
+
+            // Fix for HTML files from Litterbox/External sites
+            // They usually serve HTML as text/plain or attachment. We must fetch and blob it as text/html.
+            if (mimeType === 'text/html') {
+                try {
+                    const response = await fetch(decodedUrl);
+                    if (response.ok) {
+                        const text = await response.text();
+                        const blob = new Blob([text], { type: 'text/html' });
+                        previewUrl = URL.createObjectURL(blob);
+                    }
+                } catch (e) {
+                    console.warn("Could not fetch HTML content for preview (CORS?):", e);
+                    // Fallback to original URL if fetch fails
+                }
+            }
+            
             const guestFile = {
                 id: 'guest_shared',
                 name: fileName,
                 mimeType: mimeType,
                 source: 'local', // Treat as local/guest source
-                blobUrl: decodedUrl, // Use the direct link as blobUrl
+                blobUrl: previewUrl, // Use the potentially modified blobUrl
                 webViewLink: decodedUrl
             };
             
             setFiles([guestFile]);
-            setPreviewFile({ url: decodedUrl, type: mimeType, name: fileName });
+            setPreviewFile({ url: previewUrl, type: mimeType, name: fileName });
             setIsFullScreen(false);
             setPreviewLoading(false);
             
