@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Google Drive Uploader & Preview</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6', 
+                        secondary: '#10b981', 
+                        danger: '#ef4444', 
+                        // Dynamic Colors mapped to CSS Variables
+                        main: 'var(--bg-main)',
+                        deep: 'var(--bg-deep)',
+                        surface: 'var(--bg-surface)',
+                        text: 'var(--text-main)',
+                        muted: 'var(--text-muted)',
+                        border: 'var(--border-color)',
+                        hover: 'var(--bg-hover)',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Google API Scripts -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client"></script>
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        /* Color System Variables */
+        :root {
+            /* Light Mode (Default) */
+            --bg-main: #f8fafc;       /* Slate 50 */
+            --bg-deep: #ffffff;       /* White */
+            --bg-surface: #ffffff;    /* White */
+            --text-main: #0f172a;     /* Slate 900 */
+            --text-muted: #64748b;    /* Slate 500 */
+            --border-color: #e2e8f0;  /* Slate 200 */
+            --bg-hover: #f1f5f9;      /* Slate 100 */
+        }
+
+        [data-theme='dark'] {
+            /* Dark Mode */
+            --bg-main: #0f172a;       /* Slate 900 */
+            --bg-deep: #020617;       /* Slate 950 */
+            --bg-surface: #1e293b;    /* Slate 800 */
+            --text-main: #f1f5f9;     /* Slate 100 */
+            --text-muted: #94a3b8;    /* Slate 400 */
+            --border-color: #334155;  /* Slate 700 */
+            --bg-hover: #334155;      /* Slate 700 */
+        }
+
+        body { 
+            font-family: 'Kanit', sans-serif; 
+            background-color: var(--bg-main); 
+            color: var(--text-main); 
+            -webkit-tap-highlight-color: transparent;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .glass-panel { background: var(--bg-surface); backdrop-filter: blur(10px); }
+        
+        .loader { border: 3px solid var(--border-color); border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        .loader-lg { width: 48px; height: 48px; border-width: 4px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    </style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script type="text/babel">
+
+    // --- CONFIGURATION (OBFUSCATED) ---
+    const _d = (arr) => arr.map(c => String.fromCharCode(c)).join('');
+
+    // Encoded Credentials (ASCII)
+    const API_KEY = _d([65,73,122,97,83,121,67,83,104,84,72,108,86,50,111,70,114,55,81,77,78,101,116,71,56,49,86,95,120,57,57,122,101,68,88,66,85,116,85]);
+    const CLIENT_ID = _d([56,51,57,48,49,52,50,51,54,56,54,48,45,112,102,98,54,48,110,107,108,55,107,108,112,101,106,50,98,102,54,55,116,115,104,53,113,104,106,110,116,116,101,105,57,46,97,112,112,115,46,103,111,111,103,108,101,117,115,101,114,99,111,110,116,101,110,116,46,99,111,109]);
+    const SCOPES = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,97,117,116,104,47,100,114,105,118,101,46,102,105,108,101]);
+    const FOLDER_NAME = _d([85,112,108,111,97,100,70,105,108,101]);
+    const DISCOVERY_DOC = _d([104,116,116,112,115,58,47,47,119,119,119,46,103,111,111,103,108,101,97,112,105,115,46,99,111,109,47,100,105,115,99,111,118,101,114,121,47,118,49,47,97,112,105,115,47,100,114,105,118,101,47,118,51,47,114,101,115,116]);
+
+    // --- COMPONENTS ---
+    
+    const FileIcon = ({ mimeType }) => {
+        let iconClass = "fa-file text-muted";
+        if (mimeType.includes('image')) iconClass = "fa-file-image text-purple-500";
+        else if (mimeType.includes('pdf')) iconClass = "fa-file-pdf text-red-500";
+        else if (mimeType.includes('html')) iconClass = "fa-brands fa-html5 text-orange-500";
+        else if (mimeType.includes('video')) iconClass = "fa-file-video text-blue-500";
+        else if (mimeType.includes('folder')) iconClass = "fa-folder text-yellow-500";
+        
+        return <i className={`fas ${iconClass} text-xl`}></i>;
+    };
+
+    const App = () => {
+        const [user, setUser] = React.useState(null); // true if logged in
+        const [userId, setUserId] = React.useState(null); // Unique User ID from Google
+        const [tokenClient, setTokenClient] = React.useState(null);
+        const [gapiInited, setGapiInited] = React.useState(false);
+        const [gisInited, setGisInited] = React.useState(false);
+        const [files, setFiles] = React.useState([]);
+        const [uploading, setUploading] = React.useState(false);
+        const [previewFile, setPreviewFile] = React.useState(null); 
+        const [isFullScreen, setIsFullScreen] = React.useState(false);
+        const [previewLoading, setPreviewLoading] = React.useState(false);
+        const [isDarkMode, setIsDarkMode] = React.useState(true);
+        const [deletingId, setDeletingId] = React.useState(null);
+        const [isClearing, setIsClearing] = React.useState(false); // New state for bulk clear
+
+        // --- THEME LOGIC ---
+        React.useEffect(() => {
+            const root = document.documentElement;
+            if (isDarkMode) {
+                root.setAttribute('data-theme', 'dark');
+            } else {
+                root.setAttribute('data-theme', 'light');
+            }
+        }, [isDarkMode]);
+
+        const toggleTheme = () => {
+            setIsDarkMode(!isDarkMode);
+        };
+
+        // --- AUTH & INIT LOGIC ---
+        React.useEffect(() => {
+            const initializeGapiClient = async () => {
+                await gapi.client.init({
+                    apiKey: API_KEY,
+                    discoveryDocs: [DISCOVERY_DOC],
+                });
+                setGapiInited(true);
+                
+                // Check for existing session
+                const storedToken = localStorage.getItem('gdrive_access_token');
+                if (storedToken) {
+                    try {
+                        gapi.client.setToken({ access_token: storedToken });
+                        setUser(true);
+                        // Fetch User Info to load correct history
+                        fetchUserProfile();
+                    } catch (e) {
+                        console.error("Error restoring token", e);
+                        localStorage.removeItem('gdrive_access_token');
+                    }
+                }
+            };
+
+            gapi.load('client', initializeGapiClient);
+
+            const client = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: async (tokenResponse) => {
+                    if (tokenResponse && tokenResponse.access_token) {
+                        localStorage.setItem('gdrive_access_token', tokenResponse.access_token);
+                        setUser(true);
+                        fetchUserProfile();
+                    }
+                },
+            });
+            setTokenClient(client);
+            setGisInited(true);
+        }, []);
+
+        // --- USER PROFILE & HISTORY ---
+        const fetchUserProfile = async () => {
+            try {
+                // Get user info to use as a key for localStorage
+                const response = await gapi.client.drive.about.get({
+                    fields: 'user'
+                });
+                const currentUser = response.result.user;
+                const uniqueId = currentUser.permissionId; // or currentUser.emailAddress
+                setUserId(uniqueId);
+                
+                // Load history for this user
+                loadHistory(uniqueId);
+            } catch (err) {
+                console.error("Error fetching user profile:", err);
+                // If token invalid, sign out
+                if (err.status === 401) handleSignoutClick();
+            }
+        };
+
+        const loadHistory = (uid) => {
+            const historyKey = `gdrive_history_${uid}`;
+            const storedHistory = localStorage.getItem(historyKey);
+            if (storedHistory) {
+                try {
+                    setFiles(JSON.parse(storedHistory));
+                } catch (e) {
+                    console.error("Error parsing history", e);
+                }
+            } else {
+                setFiles([]);
+            }
+        };
+
+        const saveHistory = (uid, newFiles) => {
+            if (!uid) return;
+            const historyKey = `gdrive_history_${uid}`;
+            localStorage.setItem(historyKey, JSON.stringify(newFiles));
+        };
+
+        // --- ACTIONS ---
+        const handleAuthClick = () => {
+            if (tokenClient) {
+                tokenClient.requestAccessToken();
+            }
+        };
+
+        const handleSignoutClick = () => {
+            const token = gapi.client.getToken();
+            if (token !== null) {
+                google.accounts.oauth2.revoke(token.access_token);
+                gapi.client.setToken('');
+                localStorage.removeItem('gdrive_access_token'); 
+                setUser(null);
+                setUserId(null);
+                setFiles([]);
+                setPreviewFile(null);
+            }
+        };
+
+        const handleClearHistory = async () => {
+            if (files.length === 0) return;
+
+            // Updated Confirmation Message
+            if (!confirm('คำเตือน: การล้างประวัติจะทำการ "ลบไฟล์จริง" ทั้งหมดในรายการออกจาก Google Drive ของคุณด้วย\n\nคุณแน่ใจหรือไม่ที่จะดำเนินการต่อ?')) {
+                return;
+            }
+
+            setIsClearing(true);
+
+            try {
+                // Process deletion for all files in parallel
+                const deletePromises = files.map(file => 
+                    gapi.client.drive.files.delete({ fileId: file.id })
+                        .then(() => true)
+                        .catch(err => {
+                            console.error(`Failed to delete ${file.id}`, err);
+                            return false; // Continue even if one fails
+                        })
+                );
+
+                await Promise.all(deletePromises);
+
+                // Clear UI and Local Storage
+                setFiles([]);
+                if (userId) {
+                    localStorage.removeItem(`gdrive_history_${userId}`);
+                }
+                setPreviewFile(null);
+
+            } catch (err) {
+                console.error("Clear history error:", err);
+                alert("เกิดข้อผิดพลาดในการลบไฟล์บางรายการ");
+            } finally {
+                setIsClearing(false);
+            }
+        };
+
+        const handleDeleteFile = async (e, fileId) => {
+            e.stopPropagation(); // Prevent preview click
+            if (!confirm('ยืนยันการลบไฟล์นี้จาก Google Drive และประวัติ?')) return;
+
+            setDeletingId(fileId);
+            try {
+                // 1. Delete from Drive
+                await gapi.client.drive.files.delete({
+                    fileId: fileId
+                });
+
+                // 2. Remove from Local State & Storage
+                const updatedFiles = files.filter(f => f.id !== fileId);
+                setFiles(updatedFiles);
+                if (userId) {
+                    saveHistory(userId, updatedFiles);
+                }
+
+                // 3. Clear preview if it was the deleted file
+                if (previewFile && previewFile.url.includes(fileId)) { // Note: Blob URL won't match ID directly, but logic stands
+                    setPreviewFile(null);
+                } else if (files.find(f => f.id === fileId && previewFile && previewFile.name === f.name)) {
+                    setPreviewFile(null);
+                }
+
+            } catch (err) {
+                console.error("Delete error:", err);
+                alert("ไม่สามารถลบไฟล์ได้ (อาจเป็นไฟล์ที่แชร์มาหรือไม่มีสิทธิ์): " + err.message);
+            } finally {
+                setDeletingId(null);
+            }
+        };
+
+        // --- DRIVE LOGIC ---
+        const getOrCreateFolder = async () => {
+            try {
+                const q = `mimeType='application/vnd.google-apps.folder' and name='${FOLDER_NAME}' and trashed=false`;
+                const response = await gapi.client.drive.files.list({
+                    q: q,
+                    fields: 'files(id, name)',
+                    spaces: 'drive',
+                });
+
+                if (response.result.files.length > 0) {
+                    return response.result.files[0].id;
+                } else {
+                    const fileMetadata = {
+                        name: FOLDER_NAME,
+                        mimeType: 'application/vnd.google-apps.folder',
+                    };
+                    const folder = await gapi.client.drive.files.create({
+                        resource: fileMetadata,
+                        fields: 'id',
+                    });
+                    return folder.result.id;
+                }
+            } catch (err) {
+                console.error("Error getting folder:", err);
+                if(err.status === 401) handleSignoutClick(); 
+                return null;
+            }
+        };
+
+        const isValidFileType = (file) => {
+            const validTypes = ['text/html', 'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (file.name.endsWith('.html') || file.name.endsWith('.htm')) return true;
+            return validTypes.some(type => file.type.includes(type) || file.type.startsWith('image/'));
+        };
+
+        const uploadFile = async (file) => {
+            if (!user) {
+                alert("กรุณา Login ก่อนอัปโหลด");
+                return;
+            }
+
+            if (!isValidFileType(file)) {
+                alert("รองรับเฉพาะไฟล์ HTML, PDF และรูปภาพเท่านั้น");
+                return;
+            }
+
+            setUploading(true);
+
+            try {
+                const folderId = await getOrCreateFolder();
+                if (!folderId) throw new Error("No folder ID (Check Auth)");
+
+                const metadata = {
+                    name: file.name,
+                    mimeType: file.type || 'application/octet-stream',
+                    parents: [folderId],
+                };
+
+                const accessToken = gapi.client.getToken().access_token;
+                const form = new FormData();
+                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                form.append('file', file);
+
+                const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink', {
+                    method: 'POST',
+                    headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+                    body: form,
+                });
+
+                if (!response.ok) throw new Error("Upload failed");
+
+                const data = await response.json();
+                
+                // Update State and Storage
+                const newFileObj = {
+                    id: data.id,
+                    name: data.name,
+                    mimeType: data.mimeType,
+                    webViewLink: data.webViewLink
+                };
+
+                // Add new file to top
+                setFiles(prev => {
+                    const newFiles = [newFileObj, ...prev];
+                    saveHistory(userId, newFiles);
+                    return newFiles;
+                });
+
+                loadFileContentForPreview(data.id, data.mimeType, data.name);
+
+            } catch (err) {
+                console.error("Upload error:", err);
+                alert("อัปโหลดล้มเหลว: " + err.message);
+            } finally {
+                setUploading(false);
+            }
+        };
+
+        // --- PREVIEW LOGIC ---
+        const loadFileContentForPreview = async (fileId, mimeType, fileName) => {
+            setPreviewLoading(true);
+            try {
+                const token = gapi.client.getToken().access_token;
+                const fetchRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!fetchRes.ok) throw new Error("Fetch failed");
+
+                const blob = await fetchRes.blob();
+                const type = mimeType.includes('html') ? 'text/html' : mimeType;
+                const url = URL.createObjectURL(new Blob([blob], { type: type }));
+                
+                setPreviewFile({ url, type: mimeType, name: fileName });
+                setIsFullScreen(false);
+
+            } catch (err) {
+                console.error("Preview error:", err);
+                alert("ไม่สามารถโหลดไฟล์เพื่อพรีวิวได้");
+            } finally {
+                setPreviewLoading(false); 
+            }
+        };
+
+        // --- UI HANDLERS ---
+        const onFileChange = (e) => {
+            if (e.target.files && e.target.files[0]) {
+                uploadFile(e.target.files[0]);
+            }
+        };
+        
+        const onDrop = (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                uploadFile(e.dataTransfer.files[0]);
+            }
+        };
+
+        const onDragOver = (e) => e.preventDefault();
+
+        // --- RENDER ---
+        const renderPreviewContent = () => {
+            if (previewLoading) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-full text-muted">
+                        <div className="loader loader-lg mb-4"></div>
+                        <p>กำลังโหลดตัวอย่าง...</p>
+                    </div>
+                );
+            }
+
+            if (!previewFile) return null;
+            const { type, url } = previewFile;
+
+            if (type.includes('image')) {
+                return <img src={url} alt="Preview" className="max-w-full max-h-full object-contain mx-auto" />;
+            } else if (type.includes('pdf')) {
+                return <iframe src={url} className="w-full h-full bg-white" title="PDF Preview"></iframe>;
+            } else {
+                return <iframe src={url} className="w-full h-full bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin"></iframe>;
+            }
+        };
+
+        return (
+            <div className="min-h-screen flex flex-col relative pb-20 md:pb-0 transition-colors duration-300">
+                
+                {/* Navbar */}
+                <div className="bg-surface sticky top-0 z-30 shadow-md border-b border-border px-4 py-3 flex justify-between items-center transition-colors duration-300">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-primary/10 p-2 rounded-lg text-primary border border-primary/20">
+                            <i className="fab fa-google-drive text-xl"></i>
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-bold leading-tight text-text">Drive Upload</h1>
+                            <p className="text-xs text-muted">HTML, PDF & Image Preview</p>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                        {/* Theme Toggle */}
+                        <button 
+                            onClick={toggleTheme}
+                            className="w-9 h-9 rounded-full bg-main border border-border text-muted hover:text-primary flex items-center justify-center transition"
+                            title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                        >
+                            <i className={`fas ${isDarkMode ? 'fa-sun' : 'fa-moon'}`}></i>
+                        </button>
+
+                        {!user ? (
+                            <button 
+                                onClick={handleAuthClick}
+                                disabled={!gapiInited || !gisInited}
+                                className="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-full text-sm font-medium shadow transition active:scale-95"
+                            >
+                                <i className="fas fa-sign-in-alt md:mr-2"></i> <span className="hidden md:inline">เข้าสู่ระบบ</span>
+                            </button>
+                        ) : (
+                            <button 
+                                onClick={handleSignoutClick}
+                                className="bg-hover text-muted px-3 py-2 rounded-full text-sm hover:text-danger transition border border-border"
+                                title="Sign Out"
+                            >
+                                <i className="fas fa-sign-out-alt"></i>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Main Content */}
+                <div className="flex-1 w-full max-w-6xl mx-auto p-4 md:p-6 grid grid-cols-1 md:grid-cols-12 gap-6">
+                    
+                    {/* Left: Upload & List */}
+                    <div className="md:col-span-5 lg:col-span-4 space-y-6">
+                        
+                        {/* Upload Card */}
+                        <div className="bg-surface rounded-2xl shadow-lg p-6 text-center border border-border transition-colors duration-300">
+                            {user ? (
+                                <>
+                                    <div 
+                                        onClick={() => document.getElementById('fileInput').click()}
+                                        onDrop={onDrop}
+                                        onDragOver={onDragOver}
+                                        className={`border-2 border-dashed border-border bg-main rounded-xl p-8 cursor-pointer hover:border-primary transition active:scale-95 ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
+                                    >
+                                        <input 
+                                            type="file" 
+                                            id="fileInput" 
+                                            className="hidden" 
+                                            accept=".html,.htm,.pdf,image/*" 
+                                            onChange={onFileChange} 
+                                        />
+                                        
+                                        {uploading ? (
+                                            <div className="flex flex-col items-center">
+                                                <div className="loader mb-3"></div>
+                                                <span className="text-sm text-primary animate-pulse">กำลังอัปโหลด...</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-col items-center">
+                                                <div className="w-14 h-14 bg-surface border border-border text-primary rounded-full flex items-center justify-center mb-3 text-2xl shadow-sm">
+                                                    <i className="fas fa-cloud-upload-alt"></i>
+                                                </div>
+                                                <h3 className="font-semibold text-text">อัปโหลดไฟล์</h3>
+                                                <p className="text-xs text-muted mt-1">HTML, PDF, รูปภาพ</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="py-8 text-muted">
+                                    <i className="fas fa-lock text-4xl mb-2 opacity-30"></i>
+                                    <p className="text-sm">กรุณาเข้าสู่ระบบเพื่อใช้งาน</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* File List */}
+                        {user && (
+                            <div className="bg-surface rounded-2xl shadow-lg border border-border overflow-hidden transition-colors duration-300">
+                                <div className="px-5 py-3 border-b border-border bg-main flex justify-between items-center">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-semibold text-text text-sm">ไฟล์ล่าสุด</h3>
+                                        <span className="text-xs bg-surface text-primary px-2 py-0.5 rounded-full border border-border">{files.length}</span>
+                                    </div>
+                                    {files.length > 0 && (
+                                        <button 
+                                            onClick={handleClearHistory} 
+                                            disabled={isClearing}
+                                            className={`text-[10px] transition flex items-center gap-1 ${isClearing ? 'text-gray-400 cursor-not-allowed' : 'text-muted hover:text-danger'}`}
+                                        >
+                                            {isClearing ? (
+                                                <>
+                                                    <i className="fas fa-circle-notch fa-spin"></i> กำลังลบ...
+                                                </>
+                                            ) : (
+                                                'ล้างประวัติ (ลบไฟล์)'
+                                            )}
+                                        </button>
+                                    )}
+                                </div>
+                                {/* Fixed height to show approx 10 items (approx 600px), then scroll */}
+                                <div className="max-h-[600px] overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                                    {files.length === 0 ? (
+                                        <div className="text-center py-8 text-muted text-sm">
+                                            ยังไม่มีไฟล์ในรายการ
+                                        </div>
+                                    ) : (
+                                        files.map(file => (
+                                            <div key={file.id} 
+                                                onClick={() => loadFileContentForPreview(file.id, file.mimeType, file.name)}
+                                                className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition border border-transparent 
+                                                    ${previewFile && previewFile.name === file.name ? 'bg-primary/10 border-primary/30' : 'hover:bg-hover hover:border-border'}`}
+                                            >
+                                                <div className="flex items-center gap-3 overflow-hidden flex-1">
+                                                    <div className="w-8 h-8 rounded-lg bg-main flex items-center justify-center flex-shrink-0 border border-border">
+                                                        <FileIcon mimeType={file.mimeType} />
+                                                    </div>
+                                                    <div className="truncate flex-1">
+                                                        <p className={`text-sm font-medium truncate group-hover:text-primary ${previewFile && previewFile.name === file.name ? 'text-primary' : 'text-text'}`}>
+                                                            {file.name}
+                                                        </p>
+                                                        <p className="text-[10px] text-muted uppercase">{file.mimeType.split('/').pop()}</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    {deletingId === file.id ? (
+                                                        <div className="loader w-4 h-4 border-2"></div>
+                                                    ) : (
+                                                        <button 
+                                                            onClick={(e) => handleDeleteFile(e, file.id)}
+                                                            className="w-8 h-8 rounded-full bg-transparent hover:bg-red-500/10 text-muted hover:text-red-500 flex items-center justify-center transition-colors"
+                                                            title="ลบไฟล์"
+                                                        >
+                                                            <i className="fas fa-trash-alt text-xs"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right: Preview */}
+                    <div className="md:col-span-7 lg:col-span-8">
+                        {previewFile || previewLoading ? (
+                            <div className="bg-surface rounded-2xl shadow-lg border border-border overflow-hidden flex flex-col h-[500px] md:h-[650px] relative transition-colors duration-300">
+                                {/* Preview Header */}
+                                <div className="px-4 py-3 border-b border-border flex justify-between items-center bg-main">
+                                    <div className="flex items-center gap-2 overflow-hidden">
+                                        <div className={`w-2 h-2 rounded-full ${previewLoading ? 'bg-yellow-500 animate-pulse' : 'bg-green-500'}`}></div>
+                                        <span className="text-sm font-medium text-text truncate max-w-[150px] md:max-w-md">
+                                            {previewFile ? previewFile.name : 'กำลังโหลด...'}
+                                        </span>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        {previewFile && !previewLoading && (
+                                            <button 
+                                                onClick={() => setIsFullScreen(true)}
+                                                className="bg-danger hover:bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm"
+                                            >
+                                                <i className="fas fa-expand"></i> แสดงเต็มจอ
+                                            </button>
+                                        )}
+                                        <button 
+                                            onClick={() => { setPreviewFile(null); setPreviewLoading(false); }}
+                                            className="bg-hover hover:bg-border text-text px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5 border border-border"
+                                        >
+                                            <i className="fas fa-times"></i> ปิด
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                {/* Preview Body */}
+                                <div className="flex-1 bg-deep relative overflow-auto flex items-center justify-center">
+                                    {renderPreviewContent()}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="bg-surface rounded-2xl shadow-lg border border-border h-[300px] md:h-full flex flex-col items-center justify-center text-center p-6 bg-pattern transition-colors duration-300">
+                                <div className="w-20 h-20 bg-main rounded-full flex items-center justify-center mb-4 animate-bounce-slow border border-border">
+                                    <i className="fas fa-laptop-code text-3xl text-muted"></i>
+                                </div>
+                                <h3 className="text-lg font-semibold text-text">พร้อมแสดงตัวอย่าง</h3>
+                                <p className="text-sm text-muted max-w-xs mt-2">
+                                    เลือกไฟล์จากรายการด้านซ้าย หรืออัปโหลดไฟล์ใหม่เพื่อดูตัวอย่าง (HTML, PDF, รูปภาพ)
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Full Screen Overlay */}
+                {isFullScreen && previewFile && (
+                    <div className="fixed inset-0 z-50 bg-black flex flex-col animate-fade-in">
+                        <div className="bg-slate-900 text-white px-4 py-3 flex justify-between items-center border-b border-slate-800">
+                            <h2 className="text-sm font-medium flex items-center gap-2 truncate text-slate-200">
+                                <i className="fas fa-eye text-blue-500"></i>
+                                {previewFile.name}
+                            </h2>
+                            <button 
+                                onClick={() => setIsFullScreen(false)}
+                                className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm transition flex items-center gap-2 border border-slate-700"
+                            >
+                                <i className="fas fa-compress"></i> ปิดหน้าต่างเต็มจอ
+                            </button>
+                        </div>
+                        <div className="flex-1 bg-black flex items-center justify-center overflow-hidden">
+                            {renderPreviewContent()}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+
+</script>
+
+<style>
+    .bg-pattern {
+        background-image: radial-gradient(var(--border-color) 1px, transparent 1px);
+        background-size: 20px 20px;
+    }
+    @keyframes bounce-slow {
+        0%, 100% { transform: translateY(-5%); }
+        50% { transform: translateY(5%); }
+    }
+    .animate-bounce-slow {
+        animation: bounce-slow 3s infinite ease-in-out;
+    }
+    .animate-fade-in {
+        animation: fadeIn 0.2s ease-out;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+</style>
+
+</body>
+</html>
