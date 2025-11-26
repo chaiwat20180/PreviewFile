@@ -980,12 +980,34 @@
                     </div>
                 );
             } else if (type.includes('pdf')) {
+                // FIXED: Check for external URL to use Google Docs Viewer
+                // Bypass X-Frame-Options for external links
+                const isExternal = url.startsWith('http') && !url.startsWith('blob:');
+                const displayUrl = isExternal 
+                    ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}` 
+                    : url;
+
                 return (
-                    <div className="w-full h-full relative group">
-                        <iframe src={url} className="w-full h-full bg-white" title="PDF Preview"></iframe>
-                        <div className="absolute bottom-4 right-4 z-10">
-                             <a href={url} target="_blank" rel="noreferrer" className="bg-primary text-white px-4 py-2 rounded-full shadow-lg text-sm hover:bg-blue-600 transition flex items-center gap-2">
-                                <i className="fas fa-external-link-alt"></i> เปิดไฟล์ PDF
+                    <div className="w-full h-full relative group bg-gray-100 flex flex-col items-center justify-center">
+                        <iframe 
+                            src={displayUrl} 
+                            className="w-full h-full bg-white" 
+                            title="PDF Preview"
+                        ></iframe>
+                        
+                        {/* Fallback/Action Button Overlay */}
+                        <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-2 items-end pointer-events-none">
+                             {/* Hint Bubble */}
+                             <div className="bg-black/70 text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm mb-1 pointer-events-auto shadow-sm">
+                                <i className="fas fa-info-circle text-blue-400"></i> หากดูไม่ได้ ให้กดปุ่มด้านล่าง
+                             </div>
+                             <a 
+                                href={url} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="pointer-events-auto bg-primary hover:bg-blue-600 text-white px-5 py-3 rounded-full shadow-xl font-medium text-sm transition transform hover:-translate-y-1 flex items-center gap-2 border border-white/20"
+                             >
+                                <i className="fas fa-external-link-alt"></i> เปิดไฟล์ PDF (เต็มจอ)
                              </a>
                         </div>
                     </div>
@@ -1277,3 +1299,5 @@
     root.render(<App />);
 
 </script>
+</body>
+</html>
