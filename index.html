@@ -565,16 +565,29 @@
                                 // Create custom share link with ?url parameter
                                 const customShareLink = `${REDIRECT_URL}?url=${encodeURIComponent(uploadUrl)}`;
 
-                                Swal.fire({
-                                    icon: 'success',
-                                    title: 'สร้างลิงก์แชร์สำเร็จ!',
-                                    html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ 24 ชั่วโมง (เปิดดูได้ทันที):</p>
-                                           <input type="text" value="${customShareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm text-center" readonly onclick="this.select()">`,
-                                    confirmButtonText: 'คัดลอกและปิด',
-                                    preConfirm: () => {
-                                        navigator.clipboard.writeText(customShareLink);
-                                    }
-                                });
+                                // Auto Copy Logic for Guest
+                                try {
+                                    await navigator.clipboard.writeText(customShareLink);
+                                    Swal.fire({
+                                        icon: 'success',
+                                        title: 'คัดลอกลิงก์แล้ว!',
+                                        html: `<p class="text-sm text-gray-500 mb-2">ลิงก์นี้จะใช้ได้ 24 ชั่วโมง (เปิดดูได้ทันที):</p>
+                                               <input type="text" value="${customShareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm text-center" readonly>`,
+                                        confirmButtonText: 'ตกลง'
+                                    });
+                                } catch (clipErr) {
+                                    // Fallback if auto-copy fails
+                                    Swal.fire({
+                                        icon: 'success',
+                                        title: 'สร้างลิงก์แชร์สำเร็จ!',
+                                        html: `<p class="text-sm mb-2">ลิงก์นี้จะใช้ได้ 24 ชั่วโมง (เปิดดูได้ทันที):</p>
+                                               <input type="text" value="${customShareLink}" class="w-full p-2 border rounded bg-gray-50 text-sm text-center" readonly onclick="this.select()">`,
+                                        confirmButtonText: 'คัดลอกและปิด',
+                                        preConfirm: () => {
+                                            navigator.clipboard.writeText(customShareLink);
+                                        }
+                                    });
+                                }
                             } else {
                                 throw new Error('Upload failed: ' + uploadUrl);
                             }
