@@ -153,6 +153,29 @@
         return <i className={`fas ${iconClass} text-xl`}></i>;
     };
 
+    const isDocumentPreviewable = (mimeType, name) => {
+        const type = mimeType || '';
+        const ext = (name || '').split('.').pop().toLowerCase();
+        return [
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/vnd.google-apps.document',
+            'application/vnd.google-apps.spreadsheet',
+            'application/vnd.google-apps.presentation'
+        ].some(t => type.includes(t) || type.includes('wordprocessingml') || type.includes('spreadsheetml') || type.includes('presentationml'))
+        || ['doc','docx','xls','xlsx','ppt','pptx'].includes(ext);
+    };
+
+    const isDownloadOnlyFile = (mimeType, name) => {
+        const type = mimeType || '';
+        const ext = (name || '').split('.').pop().toLowerCase();
+        return type.includes('x-msdownload') || ext === 'exe';
+    };
+
     const App = () => {
         const [user, setUser] = React.useState(null); // true if logged in
         const [isGuest, setIsGuest] = React.useState(false); // New: Guest mode state
@@ -405,13 +428,13 @@
                     fileId: id,
                     fields: 'id, name, mimeType, webViewLink'
                 });
-                const file = response.result;
+                const file = { ...response.result, source: 'drive' };
                 
                 if (!isAuthenticated) {
                     setFiles([file]);
                 } 
 
-                loadFileContentForPreview(file.id, file.mimeType, file.name);
+                loadFileContentForPreview(file.id, file.mimeType, file.name, file);
                 
                 const Toast = Swal.mixin({
                     toast: true, position: 'top-end', showConfirmButton: false, timer: 3000, timerProgressBar: true
@@ -753,10 +776,11 @@
                 await new Promise(resolve => setTimeout(resolve, 500));
                 
                 const localUrl = URL.createObjectURL(file);
+                const mimeType = file.type || getMimeTypeFromUrl(file.name);
                 const newFileObj = {
                     id: 'local_' + Date.now() + Math.random().toString(36).substr(2, 9),
                     name: file.name,
-                    mimeType: file.type || 'application/octet-stream',
+                    mimeType,
                     webViewLink: null,
                     source: 'local',
                     blobUrl: localUrl
@@ -768,7 +792,7 @@
 
                 const metadata = {
                     name: file.name,
-                    mimeType: file.type || 'application/octet-stream',
+                    mimeType: file.type || getMimeTypeFromUrl(file.name),
                     parents: [folderId],
                 };
 
@@ -858,6 +882,24 @@
                     setPreviewFile({ id: fileId, url: fileObj.blobUrl, type: safeType, name: fileName, source: fileObj.source, webViewLink: fileObj.webViewLink, text });
                     setIsFullScreen(false);
                 } else {
+                    const drivePreviewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+                    const isDriveDoc = fileObj?.source === 'drive' && isDocumentPreviewable(fileObj?.mimeType, fileName);
+
+                    if (isDriveDoc) {
+                        setPreviewFile({
+                            id: fileId,
+                            url: drivePreviewUrl,
+                            type: safeType,
+                            name: fileName,
+                            source: 'drive',
+                            webViewLink: fileObj?.webViewLink,
+                            text: null
+                        });
+                        setIsFullScreen(false);
+                        setPreviewLoading(false);
+                        return;
+                    }
+
                     let fetchUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
                     let headers = {};
                     
@@ -885,7 +927,7 @@
                         }
                     }
 
-                    setPreviewFile({ id: fileId, url, type, name: fileName, source: fileObj?.source, webViewLink: fileObj?.webViewLink, text });
+                    setPreviewFile({ id: fileId, url, type, name: fileName, source: fileObj?.source || 'drive', webViewLink: fileObj?.webViewLink, text });
                     setIsFullScreen(false);
                 }
 
@@ -1066,6 +1108,16 @@
                         </div>
                     </div>
                 );
+            } else if (type === 'text/html' || type.includes('html')) {
+                return (
+                    <div className="w-full h-full bg-slate-100 overflow-hidden">
+                        <iframe
+                            src={url}
+                            title="HTML Preview"
+                            className="w-full h-full bg-white border border-border"
+                        ></iframe>
+                    </div>
+                );
             } else if (type.startsWith('text/') || type === 'application/json' || type.endsWith('+xml')) {
                 return (
                     <div className="w-full h-full p-4 bg-slate-100 overflow-auto">
@@ -1092,6 +1144,81 @@
                             <source src={url} type={type} />
                             Your browser does not support video playback.
                         </video>
+                    </div>
+                );
+            } else if (isDownloadOnlyFile(type, previewFile?.name)) {
+                return (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-100 p-6 text-center">
+                        <div className="text-7xl text-slate-500">
+                            <i className="fas fa-file-code"></i>
+                        </div>
+                        <div className="space-y-2 max-w-2xl">
+                            <h3 className="text-lg font-semibold text-text">ไฟล์ปฏิบัติการ (.exe) ไม่สามารถแสดงตัวอย่างได้</h3>
+                            <p className="text-sm text-muted leading-relaxed">
+                                {previewFile?.name} จะถูกดาวน์โหลดโดยตรงไปยังเครื่องของคุณ
+                            </p>
+                            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                                <a 
+                                    href={url} 
+                                    download={previewFile?.name}
+                                    className="bg-primary hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-md transition"
+                                >
+                                    <i className="fas fa-download"></i> ดาวน์โหลดไฟล์
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                );
+            } else if (isDocumentPreviewable(type, previewFile?.name)) {
+                const drivePreviewUrl = previewFile?.source === 'drive' && previewFile?.id
+                    ? `https://drive.google.com/file/d/${previewFile.id}/preview`
+                    : null;
+
+                return (
+                    <div className="w-full h-full flex flex-col bg-slate-100 p-4 gap-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-3">
+                                <div className="text-5xl text-muted">
+                                    <FileIcon mimeType={type} name={previewFile?.name} />
+                                </div>
+                                <div className="text-left">
+                                    <h3 className="text-lg font-semibold text-text">{previewFile?.name}</h3>
+                                    <p className="text-sm text-muted">{type || 'ไม่ระบุประเภทไฟล์'}</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                                <a 
+                                    href={url} 
+                                    download={previewFile?.name}
+                                    className="bg-primary hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-md transition flex items-center gap-2"
+                                >
+                                    <i className="fas fa-download"></i> ดาวน์โหลด
+                                </a>
+                                {drivePreviewUrl && (
+                                    <a 
+                                        href={drivePreviewUrl} 
+                                        target="_blank" 
+                                        rel="noreferrer" 
+                                        className="bg-secondary hover:bg-emerald-600 text-white px-4 py-3 rounded-full shadow-md transition flex items-center gap-2"
+                                    >
+                                        <i className="fas fa-external-link-alt"></i> เปิดใน Google Drive
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+                        {drivePreviewUrl ? (
+                            <iframe 
+                                src={drivePreviewUrl}
+                                className="w-full flex-1 min-h-[60vh] bg-white border border-border rounded-xl"
+                                title="Document Preview"
+                            ></iframe>
+                        ) : (
+                            <div className="w-full flex-1 min-h-[60vh] rounded-xl bg-white border border-border p-6 flex flex-col items-center justify-center text-center text-muted">
+                                <p className="text-sm max-w-xl">
+                                    ตัวอย่างเอกสารนี้ไม่สามารถแสดงได้ในโหมดนี้ แต่คุณสามารถดาวน์โหลดไฟล์แล้วเปิดในแอปพลิเคชันที่รองรับได้
+                                </p>
+                            </div>
+                        )}
                     </div>
                 );
             } else {
