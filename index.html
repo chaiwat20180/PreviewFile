@@ -133,15 +133,23 @@
 
     // --- COMPONENTS ---
     
-    const FileIcon = ({ mimeType }) => {
+    const FileIcon = ({ mimeType, name }) => {
         const type = mimeType || '';
+        const ext = (name || '').split('.').pop().toLowerCase();
         let iconClass = "fa-file text-muted";
+
         if (type.includes('image')) iconClass = "fa-file-image text-purple-500";
         else if (type.includes('pdf')) iconClass = "fa-file-pdf text-red-500";
         else if (type.includes('html')) iconClass = "fa-brands fa-html5 text-orange-500";
         else if (type.includes('video')) iconClass = "fa-file-video text-blue-500";
+        else if (type.includes('audio')) iconClass = "fa-file-audio text-teal-500";
+        else if (type.includes('zip') || type.includes('compressed') || ['zip','rar','7z','tar','gz'].includes(ext)) iconClass = "fa-file-archive text-yellow-500";
+        else if (type.includes('msword') || type.includes('wordprocessingml') || ['doc','docx'].includes(ext)) iconClass = "fa-file-word text-blue-600";
+        else if (type.includes('excel') || type.includes('spreadsheetml') || ['xls','xlsx','csv'].includes(ext)) iconClass = "fa-file-excel text-green-600";
+        else if (type.includes('powerpoint') || type.includes('presentationml') || ['ppt','pptx'].includes(ext)) iconClass = "fa-file-powerpoint text-orange-600";
+        else if (type.includes('x-msdownload') || ext === 'exe') iconClass = "fa-file-code text-slate-500";
         else if (type.includes('folder')) iconClass = "fa-folder text-yellow-500";
-        
+
         return <i className={`fas ${iconClass} text-xl`}></i>;
     };
 
@@ -316,6 +324,22 @@
             if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'image/' + ext;
             if (['pdf'].includes(ext)) return 'application/pdf';
             if (['html', 'htm'].includes(ext)) return 'text/html';
+            if (['txt', 'md', 'csv', 'log'].includes(ext)) return 'text/plain';
+            if (['json'].includes(ext)) return 'application/json';
+            if (['xml'].includes(ext)) return 'application/xml';
+            if (['doc'].includes(ext)) return 'application/msword';
+            if (['docx'].includes(ext)) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            if (['xls'].includes(ext)) return 'application/vnd.ms-excel';
+            if (['xlsx'].includes(ext)) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            if (['ppt'].includes(ext)) return 'application/vnd.ms-powerpoint';
+            if (['pptx'].includes(ext)) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+            if (['zip'].includes(ext)) return 'application/zip';
+            if (['rar','7z','tar','gz','bz2'].includes(ext)) return 'application/x-compressed';
+            if (['mp3'].includes(ext)) return 'audio/mpeg';
+            if (['wav'].includes(ext)) return 'audio/wav';
+            if (['mp4'].includes(ext)) return 'video/mp4';
+            if (['mov'].includes(ext)) return 'video/quicktime';
+            if (['exe'].includes(ext)) return 'application/x-msdownload';
             return 'application/octet-stream';
         };
 
@@ -718,9 +742,8 @@
         };
 
         const isValidFileType = (file) => {
-            const validTypes = ['text/html', 'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            if (file.name.endsWith('.html') || file.name.endsWith('.htm')) return true;
-            return validTypes.some(type => file.type.includes(type) || file.type.startsWith('image/'));
+            // Accept all files by default; only reject empty or invalid file entries.
+            return file && file.name && file.size >= 0;
         };
 
         const uploadSingleFile = async (file) => {
@@ -823,7 +846,16 @@
 
             try {
                 if (fileObj && fileObj.source === 'local') {
-                    setPreviewFile({ url: fileObj.blobUrl, type: safeType, name: fileName });
+                    let text = null;
+                    if (safeType.startsWith('text/') || safeType === 'application/json' || safeType.endsWith('+xml')) {
+                        try {
+                            text = await fetch(fileObj.blobUrl).then(res => res.text());
+                        } catch (e) {
+                            console.warn('Unable to read local text file for preview:', e);
+                        }
+                    }
+
+                    setPreviewFile({ id: fileId, url: fileObj.blobUrl, type: safeType, name: fileName, source: fileObj.source, webViewLink: fileObj.webViewLink, text });
                     setIsFullScreen(false);
                 } else {
                     let fetchUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
@@ -841,10 +873,19 @@
                     if (!fetchRes.ok) throw new Error("Fetch failed or permission denied");
 
                     const blob = await fetchRes.blob();
-                    const type = safeType.includes('html') ? 'text/html' : safeType;
-                    const url = URL.createObjectURL(new Blob([blob], { type: type }));
-                    
-                    setPreviewFile({ url, type: safeType, name: fileName });
+                    const type = safeType.includes('html') ? 'text/html' : (safeType || blob.type || 'application/octet-stream');
+                    const url = URL.createObjectURL(new Blob([blob], { type }));
+                    let text = null;
+
+                    if (type.startsWith('text/') || type === 'application/json' || type.endsWith('+xml')) {
+                        try {
+                            text = await new Response(blob).text();
+                        } catch (e) {
+                            console.warn('Unable to parse text content for preview:', e);
+                        }
+                    }
+
+                    setPreviewFile({ id: fileId, url, type, name: fileName, source: fileObj?.source, webViewLink: fileObj?.webViewLink, text });
                     setIsFullScreen(false);
                 }
 
@@ -1025,8 +1066,71 @@
                         </div>
                     </div>
                 );
+            } else if (type.startsWith('text/') || type === 'application/json' || type.endsWith('+xml')) {
+                return (
+                    <div className="w-full h-full p-4 bg-slate-100 overflow-auto">
+                        <textarea 
+                            readOnly 
+                            value={previewFile.text ?? 'Text preview is not available in this mode. Use the Download button below.'} 
+                            className="w-full h-full bg-white border border-border rounded-lg p-3 font-mono text-sm text-slate-900"
+                        />
+                    </div>
+                );
+            } else if (type.startsWith('audio/')) {
+                return (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-900 p-4">
+                        <audio controls className="w-full max-w-3xl">
+                            <source src={url} type={type} />
+                            Your browser does not support audio playback.
+                        </audio>
+                    </div>
+                );
+            } else if (type.startsWith('video/')) {
+                return (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-900 p-4">
+                        <video controls className="w-full max-w-5xl max-h-[80vh] bg-black">
+                            <source src={url} type={type} />
+                            Your browser does not support video playback.
+                        </video>
+                    </div>
+                );
             } else {
-                return <iframe src={url} className="w-full h-full bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin"></iframe>;
+                const drivePreviewUrl = previewFile?.source === 'drive' && previewFile?.id
+                    ? `https://drive.google.com/file/d/${previewFile.id}/preview`
+                    : null;
+
+                return (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-slate-100 p-6 text-center">
+                        <div className="text-6xl text-muted">
+                            <i className="fas fa-file-alt"></i>
+                        </div>
+                        <div className="space-y-2 max-w-2xl">
+                            <h3 className="text-lg font-semibold text-text">ไม่สามารถแสดงตัวอย่างแบบเต็มได้สำหรับไฟล์นี้</h3>
+                            <p className="text-sm text-muted leading-relaxed">
+                                ไฟล์ประเภท {type || 'ไม่ระบุ'} ({previewFile?.name}) สามารถดาวน์โหลดหรือเปิดด้วยแอปพลิเคชันที่รองรับได้
+                            </p>
+                            <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                                <a 
+                                    href={url} 
+                                    download={previewFile?.name}
+                                    className="bg-primary hover:bg-blue-600 text-white px-4 py-3 rounded-full shadow-md transition"
+                                >
+                                    <i className="fas fa-download"></i> ดาวน์โหลดไฟล์
+                                </a>
+                                {drivePreviewUrl && (
+                                    <a 
+                                        href={drivePreviewUrl} 
+                                        target="_blank" 
+                                        rel="noreferrer" 
+                                        className="bg-secondary hover:bg-emerald-600 text-white px-4 py-3 rounded-full shadow-md transition"
+                                    >
+                                        <i className="fas fa-external-link-alt"></i> เปิดใน Google Drive
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
             }
         };
 
@@ -1044,7 +1148,7 @@
                             <div>
                                 <h1 className="text-lg font-bold leading-tight text-text">Drive Upload</h1>
                                 <p className="text-xs text-muted flex items-center gap-1">
-                                    {isGuest ? <span className="text-secondary font-medium"><i className="fas fa-user-secret"></i> Guest Mode (Local)</span> : (isSharedView ? <span className="text-primary font-medium"><i className="fas fa-share-alt"></i> Shared View Mode</span> : "HTML, PDF & Image Preview")}
+                                    {isGuest ? <span className="text-secondary font-medium"><i className="fas fa-user-secret"></i> Guest Mode (Local)</span> : (isSharedView ? <span className="text-primary font-medium"><i className="fas fa-share-alt"></i> Shared View Mode</span> : "รองรับไฟล์ทุกชนิด พร้อมตัวอย่างสำหรับเอกสาร รูปภาพ และ PDF" )}
                                 </p>
                             </div>
                         </div>
@@ -1121,11 +1225,10 @@
                                                 type="file" 
                                                 id="fileInput" 
                                                 className="hidden" 
-                                                accept=".html,.htm,.pdf,image/*" 
                                                 multiple
                                                 onChange={onFileChange} 
                                             />
-                                            
+
                                             {uploading ? (
                                                 <div className="flex flex-col items-center">
                                                     <div className="loader mb-3"></div>
@@ -1138,7 +1241,7 @@
                                                     </div>
                                                     <h3 className="font-semibold text-text">แตะเพื่อเลือกไฟล์</h3>
                                                     <p className="text-xs text-muted mt-1">หรือลากไฟล์มาวางที่นี่</p>
-                                                    <p className="text-[10px] text-muted mt-1">(หลายไฟล์: HTML, PDF, รูปภาพ)</p>
+                                                    <p className="text-[10px] text-muted mt-1">(รองรับไฟล์ทุกชนิด, รวมถึงเอกสาร, .exe, อาร์ไคฟ์ และอื่นๆ)</p>
                                                     {isGuest && <span className="text-[10px] text-secondary mt-2 bg-secondary/10 px-2 py-0.5 rounded">โหมด Guest (Local)</span>}
                                                 </div>
                                             )}
@@ -1190,7 +1293,7 @@
                                                 >
                                                     <div className="flex items-center gap-3 overflow-hidden flex-1">
                                                         <div className="w-8 h-8 rounded-lg bg-main flex items-center justify-center flex-shrink-0 border border-border relative">
-                                                            <FileIcon mimeType={file.mimeType} />
+                                                            <FileIcon mimeType={file.mimeType} name={file.name} />
                                                             {file.source === 'local' && <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-surface"></div>}
                                                         </div>
                                                         <div className="truncate flex-1">
