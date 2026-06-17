@@ -46,6 +46,9 @@
 
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
 
@@ -161,8 +164,10 @@
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel.sheet.macroEnabled.12',
             'application/vnd.ms-powerpoint',
             'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            'application/vnd.ms-powerpoint.template.macroEnabled.12',
             'application/vnd.google-apps.document',
             'application/vnd.google-apps.spreadsheet',
             'application/vnd.google-apps.presentation'
@@ -176,6 +181,71 @@
         return type.includes('x-msdownload') || ext === 'exe';
     };
 
+    const isWordFile = (mimeType, name) => {
+        const type = mimeType || '';
+        const ext = (name || '').split('.').pop().toLowerCase();
+        return type.includes('word') || type.includes('wordprocessingml') || ['doc','docx'].includes(ext);
+    };
+
+    const isExcelFile = (mimeType, name) => {
+        const type = mimeType || '';
+        const ext = (name || '').split('.').pop().toLowerCase();
+        return type.includes('excel') || type.includes('spreadsheetml') || ['xls','xlsx','xlsm','csv'].includes(ext);
+    };
+
+    const isPowerPointFile = (mimeType, name) => {
+        const type = mimeType || '';
+        const ext = (name || '').split('.').pop().toLowerCase();
+        return type.includes('powerpoint') || type.includes('presentationml') || ['ppt','pptx','pptm'].includes(ext);
+    };
+
+    const parseLocalDocumentPreview = async (fileObj, fileName) => {
+        if (!fileObj?.blobUrl) return null;
+        try {
+            const response = await fetch(fileObj.blobUrl);
+            const blob = await response.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            if (isWordFile(fileObj.mimeType, fileName) && window.mammoth) {
+                const result = await window.mammoth.convertToHtml({ arrayBuffer });
+                return `<div class="prose max-w-full overflow-auto p-4 text-slate-800">${result.value}</div>`;
+            }
+
+            if (isExcelFile(fileObj.mimeType, fileName) && window.XLSX) {
+                const workbook = window.XLSX.read(arrayBuffer, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const html = window.XLSX.utils.sheet_to_html(sheet, { id: 'excel-preview', editable: false });
+                return `<div class="overflow-auto p-4 text-slate-900"><h2 class="text-lg font-semibold mb-3">${sheetName}</h2>${html}</div>`;
+            }
+
+            if (isPowerPointFile(fileObj.mimeType, fileName) && window.JSZip) {
+                const zip = await window.JSZip.loadAsync(blob);
+                const slides = [];
+                zip.forEach((path, entry) => {
+                    if (path.startsWith('ppt/slides/slide') && path.endsWith('.xml')) {
+                        slides.push(path);
+                    }
+                });
+                slides.sort();
+                let html = '<div class="p-4 text-slate-900">';
+                const parser = new DOMParser();
+                for (let i = 0; i < slides.length; i++) {
+                    const slideXml = await zip.file(slides[i]).async('text');
+                    const doc = parser.parseFromString(slideXml, 'application/xml');
+                    const textNodes = Array.from(doc.querySelectorAll('a\:t, t')).map(node => node.textContent).filter(Boolean);
+                    if (textNodes.length > 0) {
+                        html += `<div class="mb-4"><h2 class="text-lg font-semibold">สไลด์ ${i + 1}</h2><p class="whitespace-pre-wrap">${textNodes.join(' ')}</p></div>`;
+                    }
+                }
+                html += '</div>';
+                return html;
+            }
+        } catch (err) {
+            console.warn('Document preview parse failed:', err);
+        }
+        return null;
+    };
+
     const App = () => {
         const [user, setUser] = React.useState(null); // true if logged in
         const [isGuest, setIsGuest] = React.useState(false); // New: Guest mode state
@@ -183,6 +253,7 @@
         const [userId, setUserId] = React.useState(null); // Unique User ID from Google
         const [tokenClient, setTokenClient] = React.useState(null);
         const [gapiInited, setGapiInited] = React.useState(false);
+        const pendingPreviewRef = React.useRef(null);
         const [gisInited, setGisInited] = React.useState(false);
         const [files, setFiles] = React.useState([]);
         const [uploading, setUploading] = React.useState(false);
@@ -333,7 +404,15 @@
                 callback: async (tokenResponse) => {
                     if (tokenResponse && tokenResponse.access_token) {
                         localStorage.setItem('gdrive_access_token', tokenResponse.access_token);
-                        window.location.href = REDIRECT_URL;
+                        gapi.client.setToken({ access_token: tokenResponse.access_token });
+                        setUser(true);
+                        setIsGuest(false);
+                        await fetchUserProfile();
+                        const preview = pendingPreviewRef.current;
+                        if (preview) {
+                            loadFileContentForPreview(preview.fileId, preview.mimeType, preview.fileName, preview.fileObj);
+                            pendingPreviewRef.current = null;
+                        }
                     }
                 },
             });
@@ -356,6 +435,7 @@
             if (['xlsx'].includes(ext)) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
             if (['ppt'].includes(ext)) return 'application/vnd.ms-powerpoint';
             if (['pptx'].includes(ext)) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+            if (['pptm'].includes(ext)) return 'application/vnd.ms-powerpoint.presentation.macroEnabled.12';
             if (['zip'].includes(ext)) return 'application/zip';
             if (['rar','7z','tar','gz','bz2'].includes(ext)) return 'application/x-compressed';
             if (['mp3'].includes(ext)) return 'audio/mpeg';
@@ -868,18 +948,30 @@
 
             const safeType = mimeType || '';
 
+            const tokenObj = gapi?.client?.getToken ? gapi.client.getToken() : null;
+            const hasToken = tokenObj && tokenObj.access_token;
+            if (fileObj && fileObj.source === 'drive' && !isGuest && !hasToken) {
+                pendingPreviewRef.current = { fileId, mimeType, fileName, fileObj };
+                setPreviewLoading(false);
+                handleAuthClick();
+                return;
+            }
+
             try {
                 if (fileObj && fileObj.source === 'local') {
                     let text = null;
+                    let docPreviewHtml = null;
                     if (safeType.startsWith('text/') || safeType === 'application/json' || safeType.endsWith('+xml')) {
                         try {
                             text = await fetch(fileObj.blobUrl).then(res => res.text());
                         } catch (e) {
                             console.warn('Unable to read local text file for preview:', e);
                         }
+                    } else if (isDocumentPreviewable(safeType, fileName)) {
+                        docPreviewHtml = await parseLocalDocumentPreview(fileObj, fileName);
                     }
 
-                    setPreviewFile({ id: fileId, url: fileObj.blobUrl, type: safeType, name: fileName, source: fileObj.source, webViewLink: fileObj.webViewLink, text });
+                    setPreviewFile({ id: fileId, url: fileObj.blobUrl, type: safeType, name: fileName, source: fileObj.source, webViewLink: fileObj.webViewLink, text, docPreviewHtml });
                     setIsFullScreen(false);
                 } else {
                     const drivePreviewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
@@ -1173,6 +1265,14 @@
                 const drivePreviewUrl = previewFile?.source === 'drive' && previewFile?.id
                     ? `https://drive.google.com/file/d/${previewFile.id}/preview`
                     : null;
+
+                if (previewFile.docPreviewHtml) {
+                    return (
+                        <div className="w-full h-full overflow-auto bg-slate-100">
+                            <div className="bg-white rounded-xl border border-border shadow-sm m-4 p-4 text-slate-900" dangerouslySetInnerHTML={{ __html: previewFile.docPreviewHtml }}></div>
+                        </div>
+                    );
+                }
 
                 return (
                     <div className="w-full h-full flex flex-col bg-slate-100 p-4 gap-4">
