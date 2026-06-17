@@ -366,6 +366,23 @@
             return 'application/octet-stream';
         };
 
+        const isExternalUrl = (url) => /^https?:\/\//i.test(url);
+
+        const getResponseContentType = async (url) => {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                if (response.ok) {
+                    const contentType = response.headers.get('Content-Type');
+                    if (contentType) {
+                        return contentType.split(';')[0].trim().toLowerCase();
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to detect remote content type:', e);
+            }
+            return null;
+        };
+
         // --- FETCH GUEST SHARED FILE (FROM URL param) ---
         const loadGuestFileFromUrl = async (url) => {
             const decodedUrl = decodeURIComponent(url);
@@ -374,9 +391,15 @@
             
             // Create a dummy file object
             const fileName = decodedUrl.split('/').pop() || 'Shared Guest File';
-            const mimeType = getMimeTypeFromUrl(fileName);
-            
+            let mimeType = getMimeTypeFromUrl(fileName);
             let previewUrl = decodedUrl;
+
+            if (isExternalUrl(decodedUrl) && mimeType === 'application/octet-stream') {
+                const detectedType = await getResponseContentType(decodedUrl);
+                if (detectedType) {
+                    mimeType = detectedType;
+                }
+            }
 
             // Fix for HTML files from Litterbox/External sites
             // They usually serve HTML as text/plain or attachment. We must fetch and blob it as text/html.
@@ -397,9 +420,9 @@
             const guestFile = {
                 id: 'guest_shared',
                 name: fileName,
-                mimeType: mimeType,
-                source: 'local', // Treat as local/guest source
-                blobUrl: previewUrl, // Use the potentially modified blobUrl
+                mimeType,
+                source: 'guest',
+                blobUrl: previewUrl,
                 webViewLink: decodedUrl
             };
             
@@ -1109,13 +1132,23 @@
                     </div>
                 );
             } else if (type === 'text/html' || type.includes('html')) {
+                const isExternal = url.startsWith('http') && !url.startsWith('blob:');
+                const displayUrl = isExternal && previewFile.source !== 'drive'
+                    ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}`
+                    : url;
+
                 return (
-                    <div className="w-full h-full bg-slate-100 overflow-hidden">
+                    <div className="w-full h-full bg-slate-100 overflow-hidden relative">
                         <iframe
-                            src={url}
+                            src={displayUrl}
                             title="HTML Preview"
                             className="w-full h-full bg-white border border-border"
                         ></iframe>
+                        {isExternal && (
+                            <div className="absolute top-4 right-4 bg-black/70 text-white text-xs rounded-full px-3 py-2 shadow-lg">
+                                <span>ถ้าไม่แสดง ให้เปิดในแท็บใหม่</span>
+                            </div>
+                        )}
                     </div>
                 );
             } else if (type.startsWith('text/') || type === 'application/json' || type.endsWith('+xml')) {
@@ -1173,6 +1206,10 @@
                 const drivePreviewUrl = previewFile?.source === 'drive' && previewFile?.id
                     ? `https://drive.google.com/file/d/${previewFile.id}/preview`
                     : null;
+                const externalUrl = previewFile?.url?.startsWith('http') && !previewFile?.url?.startsWith('blob:') ? previewFile.url : null;
+                const docViewerUrl = externalUrl
+                    ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(externalUrl)}`
+                    : null;
 
                 return (
                     <div className="w-full h-full flex flex-col bg-slate-100 p-4 gap-4">
@@ -1194,6 +1231,16 @@
                                 >
                                     <i className="fas fa-download"></i> ดาวน์โหลด
                                 </a>
+                                {externalUrl && (
+                                    <a 
+                                        href={externalUrl} 
+                                        target="_blank" 
+                                        rel="noreferrer" 
+                                        className="bg-secondary hover:bg-emerald-600 text-white px-4 py-3 rounded-full shadow-md transition flex items-center gap-2"
+                                    >
+                                        <i className="fas fa-external-link-alt"></i> เปิดต้นฉบับ
+                                    </a>
+                                )}
                                 {drivePreviewUrl && (
                                     <a 
                                         href={drivePreviewUrl} 
@@ -1206,9 +1253,9 @@
                                 )}
                             </div>
                         </div>
-                        {drivePreviewUrl ? (
+                        {(drivePreviewUrl || docViewerUrl) ? (
                             <iframe 
-                                src={drivePreviewUrl}
+                                src={drivePreviewUrl || docViewerUrl}
                                 className="w-full flex-1 min-h-[60vh] bg-white border border-border rounded-xl"
                                 title="Document Preview"
                             ></iframe>
