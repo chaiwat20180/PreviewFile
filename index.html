@@ -460,12 +460,14 @@
 
             // Fix for HTML files from Litterbox/External sites
             // They usually serve HTML as text/plain or attachment. We must fetch and blob it as text/html.
+            let htmlPreviewText = null;
             if (mimeType === 'text/html') {
                 try {
                     const response = await fetch(decodedUrl);
                     if (response.ok) {
                         const text = await response.text();
-                        const blob = new Blob([text], { type: 'text/html' });
+                        htmlPreviewText = text;
+                        const blob = new Blob([text], { type: 'text/html;charset=utf-8' });
                         previewUrl = URL.createObjectURL(blob);
                     }
                 } catch (e) {
@@ -484,7 +486,7 @@
             };
             
             setFiles([guestFile]);
-            setPreviewFile({ url: previewUrl, type: mimeType, name: fileName });
+            setPreviewFile({ url: previewUrl, type: mimeType, name: fileName, text: htmlPreviewText });
             setIsFullScreen(false);
             setPreviewLoading(false);
             
@@ -1201,12 +1203,17 @@
                     </div>
                 );
             } else if (type === 'text/html' || type.includes('html')) {
+                const iframeProps = previewFile.text
+                    ? { srcDoc: previewFile.text }
+                    : { src: url };
+
                 return (
                     <div className="w-full h-full bg-slate-100 overflow-hidden">
                         <iframe
-                            src={url}
+                            {...iframeProps}
                             title="HTML Preview"
                             className="w-full h-full bg-white border border-border"
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
                         ></iframe>
                     </div>
                 );
