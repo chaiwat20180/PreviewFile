@@ -133,18 +133,88 @@
 
     // --- COMPONENTS ---
     
-    const FileIcon = ({ mimeType }) => {
-        const type = mimeType || '';
-        let iconClass = "fa-file text-muted";
+    // const FileIcon = ({ mimeType }) => {
+    //     const type = mimeType || '';
+    //     let iconClass = "fa-file text-muted";
+    //     if (type.includes('image')) iconClass = "fa-file-image text-purple-500";
+    //     else if (type.includes('pdf')) iconClass = "fa-file-pdf text-red-500";
+    //     else if (type.includes('html')) iconClass = "fa-brands fa-html5 text-orange-500";
+    //     else if (type.includes('video')) iconClass = "fa-file-video text-blue-500";
+    //     else if (type.includes('folder')) iconClass = "fa-folder text-yellow-500";
+        
+    //     return <i className={`fas ${iconClass} text-xl`}></i>;
+    // };
+    const FileIcon = ({ mimeType, name }) => {
+        const type = (mimeType || '').toLowerCase();
+        const ext = name ? name.split('.').pop().toLowerCase() : '';
+        
+        let iconClass = "fa-file text-muted"; // ค่าเริ่มต้น
+        
         if (type.includes('image')) iconClass = "fa-file-image text-purple-500";
         else if (type.includes('pdf')) iconClass = "fa-file-pdf text-red-500";
-        else if (type.includes('html')) iconClass = "fa-brands fa-html5 text-orange-500";
-        else if (type.includes('video')) iconClass = "fa-file-video text-blue-500";
-        else if (type.includes('folder')) iconClass = "fa-folder text-yellow-500";
+        else if (type.includes('html') || ext === 'html') iconClass = "fa-brands fa-html5 text-orange-500";
+        else if (type.includes('video') || ['mp4', 'mkv', 'avi', 'mov'].includes(ext)) iconClass = "fa-file-video text-blue-500";
+        else if (type.includes('audio') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) iconClass = "fa-file-audio text-pink-500";
+        else if (['doc', 'docx'].includes(ext)) iconClass = "fa-file-word text-blue-600";
+        else if (['xls', 'xlsx', 'csv'].includes(ext)) iconClass = "fa-file-excel text-green-600";
+        else if (['ppt', 'pptx'].includes(ext)) iconClass = "fa-file-powerpoint text-orange-600";
+        else if (['zip', 'rar', '7z', 'tar'].includes(ext)) iconClass = "fa-file-archive text-yellow-600";
+        
+        // แทรกโค้ดส่วนนี้: ตรวจจับไฟล์ Code และ Script ต่างๆ
+        else if (['sql', 'ps1', 'ini', 'json', 'js', 'ts', 'py', 'css', 'sh', 'bat', 'xml', 'yaml', 'yml', 'c', 'cpp', 'cs', 'java', 'go'].includes(ext)) {
+            iconClass = "fa-file-code text-amber-500";
+        }
+        
+        else if (['txt', 'md'].includes(ext) || type.includes('text')) iconClass = "fa-file-alt text-gray-500";
         
         return <i className={`fas ${iconClass} text-xl`}></i>;
     };
+    // --- Component สำหรับอ่านและแสดงผลไฟล์ Code / Text ---
+    // --- Component สำหรับอ่านและแสดงผลไฟล์ Code / Text ---
+    const CodePreview = ({ url, name }) => {
+        const [code, setCode] = React.useState('กำลังโหลดเนื้อหาโค้ด...');
+        const [hasError, setHasError] = React.useState(false); // เพิ่ม State เช็ค Error
+        
+        React.useEffect(() => {
+            fetch(url)
+                .then(res => {
+                    if (!res.ok) throw new Error('Network response was not ok');
+                    return res.text();
+                })
+                .then(text => {
+                    setCode(text);
+                    setHasError(false);
+                })
+                .catch(err => {
+                    console.error("Fetch error:", err);
+                    // หากติด CORS ให้แสดงข้อความและปุ่มแทน
+                    setCode(`ไม่สามารถดึงข้อความมาแสดงผลได้\nสาเหตุ: เซิร์ฟเวอร์ปลายทางติดข้อจำกัดความปลอดภัย (CORS Policy)\n\nกรุณากดปุ่มด้านล่างเพื่อเปิดหรือดาวน์โหลดไฟล์นี้โดยตรง`);
+                    setHasError(true);
+                });
+        }, [url]);
 
+        return (
+            <div className="w-full h-full relative bg-slate-900 text-slate-100 p-5 font-mono text-sm overflow-auto custom-scrollbar select-text text-left flex flex-col">
+                <pre className="whitespace-pre-wrap break-all leading-relaxed flex-1"><code>{code}</code></pre>
+                
+                {/* ปุ่มเปิดไฟล์กรณีติด Error CORS */}
+                {hasError && (
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center bg-slate-800/90 p-6 rounded-2xl border border-slate-700 shadow-2xl backdrop-blur-sm">
+                        <i className="fas fa-shield-alt text-4xl text-yellow-500 mb-4"></i>
+                        <p className="text-sm text-slate-300 mb-6 text-center">ไฟล์อยู่บนเซิร์ฟเวอร์ภายนอกที่ไม่เปิดสิทธิ์ให้อ่านข้อมูล</p>
+                        <a 
+                            href={url} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-full font-medium transition shadow-lg flex items-center gap-2"
+                        >
+                            <i className="fas fa-external-link-alt"></i> เปิดไฟล์ / ดาวน์โหลด
+                        </a>
+                    </div>
+                )}
+            </div>
+        );
+    };
     const App = () => {
         const [user, setUser] = React.useState(null); // true if logged in
         const [isGuest, setIsGuest] = React.useState(false); // New: Guest mode state
@@ -717,12 +787,14 @@
             });
         };
 
+        // const isValidFileType = (file) => {
+        //     const validTypes = ['text/html', 'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        //     if (file.name.endsWith('.html') || file.name.endsWith('.htm')) return true;
+        //     return validTypes.some(type => file.type.includes(type) || file.type.startsWith('image/'));
+        // };
         const isValidFileType = (file) => {
-            const validTypes = ['text/html', 'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            if (file.name.endsWith('.html') || file.name.endsWith('.htm')) return true;
-            return validTypes.some(type => file.type.includes(type) || file.type.startsWith('image/'));
+            return true;
         };
-
         const uploadSingleFile = async (file) => {
             if (!isValidFileType(file)) return null;
 
@@ -941,7 +1013,96 @@
         };
 
         // --- RENDER ---
-        const renderPreviewContent = () => {
+        // const renderPreviewContent = () => {
+        //     if (previewLoading) {
+        //         return (
+        //             <div className="flex flex-col items-center justify-center h-full text-muted">
+        //                 <div className="loader loader-lg mb-4"></div>
+        //                 <p>กำลังโหลดตัวอย่าง...</p>
+        //             </div>
+        //         );
+        //     }
+
+        //     if (!previewFile) return null;
+        //     const { type, url } = previewFile;
+
+        //     if (type.includes('image')) {
+        //         return (
+        //             <div 
+        //                 className="w-full h-full relative flex items-center justify-center bg-slate-900 overflow-hidden"
+        //                 onMouseDown={handleMouseDown}
+        //                 onMouseMove={handleMouseMove}
+        //                 onMouseUp={handleMouseUp}
+        //                 onMouseLeave={handleMouseUp}
+        //                 style={{ cursor: isDragging ? 'grabbing' : (imgScale > 1 ? 'grab' : 'default') }}
+        //             >
+        //                 <div 
+        //                     className="transition-transform duration-75 ease-out origin-center will-change-transform"
+        //                     style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${imgScale}) rotate(${imgRotate}deg)` }}
+        //                 >
+        //                     <img src={url} alt="Preview" className="max-w-full max-h-[80vh] object-contain shadow-lg pointer-events-none" />
+        //                 </div>
+                        
+        //                 {/* Image Floating Toolbar */}
+        //                 <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-2 bg-slate-800/90 p-2 rounded-full shadow-xl border border-slate-700 z-20 text-white">
+        //                     <button onClick={handleZoomIn} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom In">
+        //                         <i className="fas fa-search-plus"></i>
+        //                     </button>
+        //                     <button onClick={handleZoomOut} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom Out">
+        //                         <i className="fas fa-search-minus"></i>
+        //                     </button>
+        //                     <button onClick={handleRotate} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Rotate">
+        //                         <i className="fas fa-sync-alt"></i>
+        //                     </button>
+        //                     <button onClick={handleResetImg} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Reset">
+        //                         <i className="fas fa-undo"></i>
+        //                     </button>
+        //                     <div className="w-px bg-slate-600 mx-1"></div>
+        //                     <button onClick={handleSaveImage} className="w-10 h-10 rounded-full hover:bg-primary hover:text-white text-primary flex items-center justify-center transition" title="Save Image">
+        //                         <i className="fas fa-download"></i>
+        //                     </button>
+        //                 </div>
+        //             </div>
+        //         );
+        //     } else if (type.includes('pdf')) {
+        //         // FIXED: Check for external URL to use Google Docs Viewer
+        //         // Bypass X-Frame-Options for external links
+        //         const isExternal = url.startsWith('http') && !url.startsWith('blob:');
+        //         const displayUrl = isExternal 
+        //             ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}` 
+        //             : url;
+
+        //         return (
+        //             <div className="w-full h-full relative group bg-gray-100 flex flex-col items-center justify-center">
+        //                 <iframe 
+        //                     src={displayUrl} 
+        //                     className="w-full h-full bg-white" 
+        //                     title="PDF Preview"
+        //                 ></iframe>
+                        
+        //                 {/* Fallback/Action Button Overlay */}
+        //                 <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-2 items-end pointer-events-none">
+        //                      {/* Hint Bubble */}
+        //                      <div className="bg-black/70 text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm mb-1 pointer-events-auto shadow-sm">
+        //                         <i className="fas fa-info-circle text-blue-400"></i> หากดูไม่ได้ ให้กดปุ่มด้านล่าง
+        //                      </div>
+        //                      <a 
+        //                         href={url} 
+        //                         target="_blank" 
+        //                         rel="noreferrer" 
+        //                         className="pointer-events-auto bg-primary hover:bg-blue-600 text-white px-5 py-3 rounded-full shadow-xl font-medium text-sm transition transform hover:-translate-y-1 flex items-center gap-2 border border-white/20"
+        //                      >
+        //                         <i className="fas fa-external-link-alt"></i> เปิดไฟล์ PDF (เต็มจอ)
+        //                      </a>
+        //                 </div>
+        //             </div>
+        //         );
+        //     } else {
+        //         return <iframe src={url} className="w-full h-full bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin"></iframe>;
+        //     }
+        // };
+
+         const renderPreviewContent = () => {
             if (previewLoading) {
                 return (
                     <div className="flex flex-col items-center justify-center h-full text-muted">
@@ -952,9 +1113,15 @@
             }
 
             if (!previewFile) return null;
-            const { type, url } = previewFile;
+            const { type, url, name } = previewFile;
+            const safeType = (type || '').toLowerCase();
+            const ext = name ? name.split('.').pop().toLowerCase() : '';
+            
+            // เช็คว่าเป็นลิงก์ภายนอก (เช่น Catbox) หรือไม่
+            const isExternal = url.startsWith('http') && !url.startsWith('blob:');
 
-            if (type.includes('image')) {
+            // 1. หมวดรูปภาพ
+            if (safeType.includes('image')) {
                 return (
                     <div 
                         className="w-full h-full relative flex items-center justify-center bg-slate-900 overflow-hidden"
@@ -971,46 +1138,86 @@
                             <img src={url} alt="Preview" className="max-w-full max-h-[80vh] object-contain shadow-lg pointer-events-none" />
                         </div>
                         
-                        {/* Image Floating Toolbar */}
                         <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex gap-2 bg-slate-800/90 p-2 rounded-full shadow-xl border border-slate-700 z-20 text-white">
-                            <button onClick={handleZoomIn} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom In">
-                                <i className="fas fa-search-plus"></i>
-                            </button>
-                            <button onClick={handleZoomOut} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom Out">
-                                <i className="fas fa-search-minus"></i>
-                            </button>
-                            <button onClick={handleRotate} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Rotate">
-                                <i className="fas fa-sync-alt"></i>
-                            </button>
-                            <button onClick={handleResetImg} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Reset">
-                                <i className="fas fa-undo"></i>
-                            </button>
+                            <button onClick={handleZoomIn} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom In"><i className="fas fa-search-plus"></i></button>
+                            <button onClick={handleZoomOut} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Zoom Out"><i className="fas fa-search-minus"></i></button>
+                            <button onClick={handleRotate} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Rotate"><i className="fas fa-sync-alt"></i></button>
+                            <button onClick={handleResetImg} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center transition" title="Reset"><i className="fas fa-undo"></i></button>
                             <div className="w-px bg-slate-600 mx-1"></div>
-                            <button onClick={handleSaveImage} className="w-10 h-10 rounded-full hover:bg-primary hover:text-white text-primary flex items-center justify-center transition" title="Save Image">
-                                <i className="fas fa-download"></i>
-                            </button>
+                            {/* เปลี่ยนปุ่ม Save Image ให้รองรับ External */}
+                            {isExternal ? (
+                                <a href={url} target="_blank" rel="noreferrer" className="w-10 h-10 rounded-full hover:bg-primary hover:text-white text-primary flex items-center justify-center transition" title="Open Image">
+                                    <i className="fas fa-external-link-alt"></i>
+                                </a>
+                            ) : (
+                                <button onClick={handleSaveImage} className="w-10 h-10 rounded-full hover:bg-primary hover:text-white text-primary flex items-center justify-center transition" title="Save Image">
+                                    <i className="fas fa-download"></i>
+                                </button>
+                            )}
                         </div>
                     </div>
                 );
-            } else if (type.includes('pdf')) {
-                // FIXED: Check for external URL to use Google Docs Viewer
-                // Bypass X-Frame-Options for external links
-                const isExternal = url.startsWith('http') && !url.startsWith('blob:');
+            } 
+            
+            // 2. หมวดวิดีโอ (เพิ่มปุ่มเปิดในแท็บใหม่เผื่อเล่นไม่ได้)
+            else if (safeType.includes('video') || ['mp4', 'webm', 'ogg', 'mov'].includes(ext)) {
+                return (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-black relative group">
+                        <video src={url} controls className="max-w-full max-h-full" playsInline>
+                            เบราว์เซอร์ของคุณไม่รองรับการเล่นวิดีโอนี้
+                        </video>
+                        <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <a href={url} target="_blank" rel="noreferrer" className="bg-black/60 hover:bg-black/90 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 backdrop-blur-sm border border-white/20">
+                                <i className="fas fa-external-link-alt"></i> เปิด/ดาวน์โหลดวิดีโอ
+                            </a>
+                        </div>
+                    </div>
+                );
+            }
+
+            // 3. หมวดเสียง (เพิ่มปุ่มดาวน์โหลด)
+            else if (safeType.includes('audio') || ['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) {
+                return (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-surface p-6">
+                        <i className="fas fa-music text-6xl text-blue-500 mb-6 animate-pulse"></i>
+                        <h3 className="text-lg font-medium text-text mb-4 truncate max-w-sm">{name}</h3>
+                        <audio src={url} controls className="w-full max-w-md shadow-md rounded-full">
+                            เบราว์เซอร์ของคุณไม่รองรับการเล่นเสียงนี้
+                        </audio>
+                        <div className="mt-8">
+                            <a href={url} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary hover:underline flex items-center gap-2">
+                                <i className="fas fa-download"></i> ดาวน์โหลด / ฟังไฟล์ต้นฉบับ
+                            </a>
+                        </div>
+                    </div>
+                );
+            }
+
+            // 4. หมวดไฟล์ Code และ Text ต่างๆ
+            const codeExtensions = ['sql', 'ps1', 'ini', 'json', 'js', 'ts', 'py', 'css', 'sh', 'bat', 'xml', 'yaml', 'yml', 'txt', 'md', 'c', 'cpp', 'cs', 'java', 'go'];
+            if (codeExtensions.includes(ext) || safeType.includes('text/plain') || safeType.includes('application/json')) {
+                return <CodePreview url={url} name={name} />;
+            }
+
+            // 5. หมวด PDF และไฟล์เอกสาร Office
+            else if (safeType.includes('pdf') || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) {
                 const displayUrl = isExternal 
                     ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}` 
                     : url;
 
                 return (
                     <div className="w-full h-full relative group bg-gray-100 flex flex-col items-center justify-center">
-                        <iframe 
-                            src={displayUrl} 
-                            className="w-full h-full bg-white" 
-                            title="PDF Preview"
-                        ></iframe>
+                        {isExternal || safeType.includes('pdf') ? (
+                            <iframe src={displayUrl} className="w-full h-full bg-white" title="Document Preview"></iframe>
+                        ) : (
+                            <div className="text-center p-6 bg-surface rounded-xl shadow-sm border border-border">
+                                <i className="fas fa-file-word text-5xl text-blue-500 mb-4"></i>
+                                <h3 className="text-text font-medium mb-2">ไม่สามารถแสดงตัวอย่างเอกสารแบบออฟไลน์ได้</h3>
+                                <p className="text-sm text-muted">กรุณาแชร์ไฟล์เพื่อสร้างลิงก์ออนไลน์ หรือดาวน์โหลดลงเครื่อง</p>
+                            </div>
+                        )}
                         
-                        {/* Fallback/Action Button Overlay */}
                         <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-2 items-end pointer-events-none">
-                             {/* Hint Bubble */}
                              <div className="bg-black/70 text-white text-xs px-3 py-1.5 rounded-lg backdrop-blur-sm mb-1 pointer-events-auto shadow-sm">
                                 <i className="fas fa-info-circle text-blue-400"></i> หากดูไม่ได้ ให้กดปุ่มด้านล่าง
                              </div>
@@ -1020,16 +1227,56 @@
                                 rel="noreferrer" 
                                 className="pointer-events-auto bg-primary hover:bg-blue-600 text-white px-5 py-3 rounded-full shadow-xl font-medium text-sm transition transform hover:-translate-y-1 flex items-center gap-2 border border-white/20"
                              >
-                                <i className="fas fa-external-link-alt"></i> เปิดไฟล์ PDF (เต็มจอ)
+                                <i className="fas fa-external-link-alt"></i> เปิดไฟล์ / ดาวน์โหลด
                              </a>
                         </div>
                     </div>
                 );
-            } else {
-                return <iframe src={url} className="w-full h-full bg-white" title="HTML Preview" sandbox="allow-scripts allow-same-origin"></iframe>;
+            } 
+            
+            // 6. หมวด HTML เว็บพรีวิว (แก้ปัญหา sameorigin โดยบล็อกไม่ให้ใช้ iframe ถ้าเป็นเว็บนอก)
+            else if (safeType.includes('html') || ['html', 'htm'].includes(ext)) {
+                if (isExternal) {
+                    return (
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-surface p-6 text-center">
+                            <div className="w-24 h-24 bg-main rounded-full flex items-center justify-center mb-6 border border-border shadow-sm">
+                                <i className="fa-brands fa-html5 text-5xl text-orange-500"></i>
+                            </div>
+                            <h3 className="text-xl font-semibold text-text mb-2">ไม่สามารถแสดงหน้าเว็บในกรอบได้</h3>
+                            <p className="text-sm text-muted mb-6 max-w-sm">
+                                ไฟล์นี้อยู่บนเซิร์ฟเวอร์ภายนอกที่ไม่อนุญาตให้แสดงผลผ่าน iframe (ติด X-Frame-Options)
+                            </p>
+                            <a href={url} target="_blank" rel="noreferrer" className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-full font-medium transition shadow-md flex items-center gap-2">
+                                <i className="fas fa-external-link-alt"></i> เปิดหน้าเว็บในแท็บใหม่
+                            </a>
+                        </div>
+                    );
+                }
+                return <iframe src={url} className="w-full h-full bg-white" title="Web Preview" sandbox="allow-scripts allow-same-origin"></iframe>;
+            } 
+            
+            // 7. กรณีไฟล์ประเภทอื่นๆ
+            else {
+                return (
+                    <div className="w-full h-full flex flex-col items-center justify-center bg-surface p-6 text-center">
+                        <div className="w-24 h-24 bg-main rounded-full flex items-center justify-center mb-6 border border-border shadow-sm">
+                            <i className="fas fa-file-download text-5xl text-muted"></i>
+                        </div>
+                        <h3 className="text-xl font-semibold text-text mb-2">ไม่สามารถแสดงตัวอย่างไฟล์นี้ได้</h3>
+                        <p className="text-sm text-muted mb-6 max-w-sm">ระบบไม่รองรับการแสดงผลไฟล์ <b>.{ext || 'unknown'}</b></p>
+                        
+                        <a 
+                            href={url} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-full font-medium transition shadow-md flex items-center gap-2"
+                        >
+                            <i className="fas fa-download"></i> ดาวน์โหลด / เปิดไฟล์
+                        </a>
+                    </div>
+                );
             }
         };
-
         return (
             <div className="min-h-screen flex flex-col relative pb-20 md:pb-0 transition-colors duration-300">
                 
@@ -1121,11 +1368,9 @@
                                                 type="file" 
                                                 id="fileInput" 
                                                 className="hidden" 
-                                                accept=".html,.htm,.pdf,image/*" 
                                                 multiple
                                                 onChange={onFileChange} 
                                             />
-                                            
                                             {uploading ? (
                                                 <div className="flex flex-col items-center">
                                                     <div className="loader mb-3"></div>
@@ -1190,7 +1435,7 @@
                                                 >
                                                     <div className="flex items-center gap-3 overflow-hidden flex-1">
                                                         <div className="w-8 h-8 rounded-lg bg-main flex items-center justify-center flex-shrink-0 border border-border relative">
-                                                            <FileIcon mimeType={file.mimeType} />
+                                                            <FileIcon mimeType={file.mimeType} name={file.name} />
                                                             {file.source === 'local' && <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-secondary rounded-full border-2 border-surface"></div>}
                                                         </div>
                                                         <div className="truncate flex-1">
