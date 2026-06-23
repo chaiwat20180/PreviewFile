@@ -1220,7 +1220,7 @@
                             
                             <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-2 items-end pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
                                  <a 
-                                    href={`https://drive.google.com/file/d/${url.split('/d/').split('/')}/view`} 
+                                    href={url.replace('/preview', '/view')} 
                                     target="_blank" 
                                     rel="noreferrer" 
                                     className="pointer-events-auto bg-primary hover:bg-blue-600 text-white px-5 py-3 rounded-full shadow-xl font-medium text-sm transition transform hover:-translate-y-1 flex items-center gap-2 border border-white/20"
