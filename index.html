@@ -881,6 +881,7 @@
         };
 
         // --- PREVIEW LOGIC ---
+        // --- PREVIEW LOGIC ---
         const loadFileContentForPreview = async (fileId, mimeType, fileName, fileObj = null) => {
             setPreviewLoading(true);
             setImgScale(1);
@@ -892,12 +893,22 @@
             }
 
             const safeType = mimeType || '';
+            const ext = fileName ? fileName.split('.').pop().toLowerCase() : '';
+            const isOfficeOrPdf = safeType.includes('pdf') || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext);
 
             try {
                 if (fileObj && fileObj.source === 'local') {
                     setPreviewFile({ url: fileObj.blobUrl, type: safeType, name: fileName });
                     setIsFullScreen(false);
-                } else {
+                } 
+                // เพิ่มเงื่อนไขนี้: ถ้าเป็นไฟล์จาก Drive ที่เป็นเอกสาร Office หรือ PDF ให้ใช้ระบบ Preview ของ Drive โดยตรง
+                else if (fileObj && fileObj.source !== 'local' && isOfficeOrPdf) {
+                    const drivePreviewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+                    setPreviewFile({ url: drivePreviewUrl, type: safeType, name: fileName, isDrivePreview: true });
+                    setIsFullScreen(false);
+                }
+                // ไฟล์ประเภทอื่นๆ โหลดตามปกติ (รูปภาพ, โค้ด ฯลฯ)
+                else {
                     let fetchUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
                     let headers = {};
                     
@@ -1198,9 +1209,30 @@
             if (codeExtensions.includes(ext) || safeType.includes('text/plain') || safeType.includes('application/json')) {
                 return <CodePreview url={url} name={name} />;
             }
-
             // 5. หมวด PDF และไฟล์เอกสาร Office
             else if (safeType.includes('pdf') || ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) {
+                
+                // ถ้าระบุว่าเป็น Drive Preview ให้แสดง Iframe ของ Google Drive โดยตรง
+                if (previewFile.isDrivePreview) {
+                    return (
+                        <div className="w-full h-full relative group bg-gray-100 flex flex-col items-center justify-center">
+                            <iframe src={url} className="w-full h-full bg-white border-0" title="Drive Document Preview"></iframe>
+                            
+                            <div className="absolute bottom-6 right-6 z-20 flex flex-col gap-2 items-end pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <a 
+                                    href={`https://drive.google.com/file/d/${url.split('/d/').split('/')}/view`} 
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    className="pointer-events-auto bg-primary hover:bg-blue-600 text-white px-5 py-3 rounded-full shadow-xl font-medium text-sm transition transform hover:-translate-y-1 flex items-center gap-2 border border-white/20"
+                                 >
+                                    <i className="fas fa-external-link-alt"></i> เปิดไฟล์แบบเต็มจอ (Google Drive)
+                                 </a>
+                            </div>
+                        </div>
+                    );
+                }
+
+                // สำหรับกรณี Guest Mode หรือลิงก์ภายนอก
                 const displayUrl = isExternal 
                     ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(url)}` 
                     : url;
@@ -1232,7 +1264,7 @@
                         </div>
                     </div>
                 );
-            } 
+            }
             
             // 6. หมวด HTML เว็บพรีวิว (แก้ปัญหา sameorigin โดยบล็อกไม่ให้ใช้ iframe ถ้าเป็นเว็บนอก)
             else if (safeType.includes('html') || ['html', 'htm'].includes(ext)) {
